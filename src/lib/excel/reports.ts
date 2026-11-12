@@ -5,7 +5,8 @@ import { loadExcel } from '../importer/workbook';
 import { categoryLabel, kindOf, lines, txBase, type Model } from '../calc/model';
 import { computeMonth } from '../calc/budget';
 import { balanceHistory, cashFlow, incomeByCategory, monthsBetween, spendingByCategory } from '../calc/reports';
-import { MONTHS, monthLabel, shiftMonth, weekOfMonth, currentMonth } from '../util';
+import { MONTHS, monthLabel, shiftMonth } from '../util';
+import { currentBudgetMonth } from '../calc/period';
 
 const INK = 'FF1C2A39';
 const MOSS = 'FF2F6B4F';
@@ -21,7 +22,7 @@ export interface ReportOptions {
 
 export function defaultReportRange(m: Model): ReportOptions {
   const months = [...m.transactions.map((t) => t.date.slice(0, 7)), ...m.budgetLines.map((b) => b.month)].sort();
-  const to = currentMonth();
+  const to = currentBudgetMonth(m);
   const from = months[0] && months[0] < to ? months[0] : shiftMonth(to, -11);
   return { from: from < shiftMonth(to, -35) ? shiftMonth(to, -35) : from, to };
 }
@@ -194,7 +195,7 @@ export async function buildReportWorkbook(m: Model, o: ReportOptions): Promise<A
       new Date(l.date + 'T00:00:00Z'),
       Number(l.date.slice(0, 4)),
       mLabel(l.month),
-      `Week ${weekOfMonth(l.date)}`,
+      `Week ${l.week}`,
       a?.name ?? '',
       a?.type ?? '',
       l.tx.payee ?? '',

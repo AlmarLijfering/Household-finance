@@ -49,6 +49,7 @@ export interface Category {
   // Where the category can be used. Both empty/undefined = every account.
   accountTypes?: AccountType[];
   accountIds?: ID[];
+  activeUntil?: ISODate; // last day it can be used; later bookings and budget months leave it out
   archived?: boolean;
   sort: number;
   updatedAt: string;
@@ -78,6 +79,9 @@ export interface Transaction {
   status: TxStatus;
   reconciliationId?: ID;
   importBatchId?: ID;
+  recurringId?: ID; // set when recorded from a bill or income
+  budgetMonth?: MonthKey; // counts for this budget month instead of the one its date falls in
+  monthConfirmed?: boolean; // you confirmed it counts for the month of its date (no earmark warning)
   sourceRef?: string; // workbook/sheet/row for traceability and duplicate checks
   createdAt: string;
   updatedAt: string;
@@ -118,6 +122,7 @@ export interface Recurring {
   payee?: string;
   active: boolean;
   scenarioId?: ID | null; // null/undefined = part of the base plan
+  countsFor?: 'same' | 'next'; // 'next': money for the following budget month, e.g. a salary advance
   updatedAt: string;
 }
 
@@ -198,6 +203,7 @@ export interface ImportBatch {
 /** Per-month figures for the "In current accounts and cash" row of the budget balance. */
 export interface MonthPlan {
   id: MonthKey;
+  startDate?: ISODate; // own first day of this budget month (end = next month's start − 1)
   startBaseline?: number;
   startEstimate?: number;
   updatedAt: string;
@@ -209,6 +215,7 @@ export interface Settings {
   baseCurrency: string;
   currencies: string[];
   weekStartsOn: 1 | 0;
+  budgetPeriods?: 'weeks' | 'calendar'; // default 'weeks': months in whole weeks
   defaultAccountId?: ID;
   updatedAt: string;
 }

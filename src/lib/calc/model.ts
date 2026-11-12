@@ -20,7 +20,7 @@ import type {
   MonthPlan,
   AccountType
 } from '../types';
-import { monthOf, weekOfMonth } from '../util';
+import { txMonth, txWeek, periodEnd } from './period';
 
 export interface Model {
   settings: Settings;
@@ -110,6 +110,22 @@ export function categoryAllowed(c: Category, account?: Account | null): boolean 
   if (!account) return true;
   return ids.includes(account.id) || types.includes(account.type);
 }
+/** Whether a category can still be used on a date (it has no end date, or the date is not after it). */
+export function categoryActiveOn(c: Category | undefined, date: ISODate): boolean {
+  return !c?.activeUntil || date <= c.activeUntil;
+}
+
+/** A category that can be used on everyday accounts (current accounts or cash). */
+export function isEverydayCategory(m: Model, c: Category): boolean {
+  const types = c.accountTypes ?? [];
+  const ids = c.accountIds ?? [];
+  if (!types.length && !ids.length) return true;
+  if (types.includes('current') || types.includes('cash')) return true;
+  return ids.some((id) => {
+    const a = m.accountById.get(id);
+    return a ? a.type === 'current' || a.type === 'cash' : false;
+  });
+}
 export function scopeLabel(m: Model, c: Category): string {
   const ids = c.accountIds ?? [];
   const types = c.accountTypes ?? [];
@@ -157,7 +173,7 @@ function linesOf(m: Model, txs: Transaction[]): Line[] {
   for (const t of txs) {
     const acc = m.accountById.get(t.accountId);
     const cur = acc?.currency ?? m.settings.baseCurrency;
-    const base = { tx: t, date: t.date, month: monthOf(t.date), week: weekOfMonth(t.date) };
+    const base = { tx: t, date: t.date, month: txMonth(m, t), week: txWeek(m, t) };
     if (t.splits && t.splits.length) {
       for (const s of t.splits) out.push({ ...base, categoryId: s.categoryId, amount: toBase(m, s.amount, cur, t.date) });
     } else out.push({ ...base, categoryId: t.categoryId, amount: toBase(m, t.amount, cur, t.date) });
@@ -211,4 +227,36 @@ export function runningBalances(m: Model, accountId: ID): Map<ID, number> {
 }
 export function txOrder(a: Transaction, b: Transaction) {
   return a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+}
+
+/**
+ * Money in the given accounts for a budget month: opening balances plus every transaction
+ * that counts for this month or an earlier one. Money booked for a later month is left out,
+ * even when it is already in the bank (e.g. a salary advance meant for next month).
+ */
+export function monthBalance(m: Model, filter: (a: Account) => boolean, month: MonthKey): number {
+  const end = periodEnd(m, month);
+  let s = 0;
+  const ok = new Map<ID, Account>();
+  for (const a of m.accounts) if (!a.archived && filter(a)) ok.set(a.id, a);
+  for (const a of ok.values()) if (!a.openingDate || a.openingDate <= end) s += toBase(m, a.openingBalance, a.currency, end);
+  for (const t of m.transactions) {
+    const a = ok.get(t.accountId);
+    if (!a) continue;
+    if (txMonth(m, t) > month) continue;
+    s += toBase(m, t.amount, a.currency, t.date);
+  }
+  return s;
+}
+
+/** Net money already booked for one budget month in the given accounts. */
+export function bookedInMonth(m: Model, filter: (a: Account) => boolean, month: MonthKey): number {
+  let s = 0;
+  for (const t of m.transactions) {
+    const a = m.accountById.get(t.accountId);
+    if (!a || a.archived || !filter(a)) continue;
+    if (txMonth(m, t) !== month) continue;
+    s += toBase(m, t.amount, a.currency, t.date);
+  }
+  return s;
 }

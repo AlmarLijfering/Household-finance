@@ -1,6 +1,7 @@
 import { accountTypeFor, groupCodeFor, sectionFor } from '../structure';
 import type { AccountType, ISODate } from '../types';
-import { MONTHS, pad, toMinor } from '../util';
+import { MONTHS, pad, toMinor, addDays, shiftMonth } from '../util';
+import { ruleStart } from '../calc/period';
 import { num, str, type Cell, type TableData, type WorkbookData } from './workbook';
 
 export type Level = 'error' | 'warning' | 'info';
@@ -69,6 +70,8 @@ export interface ImportPlan {
   skipped: Array<{ name: string; reason: string }>;
   issues: Issue[];
   checks: Array<{ label: string; expected: number; actual: number; ok: boolean }>;
+  /** First day of each budget month, from the week dates on the budget sheets. */
+  periodStarts: Record<string, string>;
 }
 
 const CODE_RE = /^[A-Z]{2,3}\d{3}$/;
@@ -80,9 +83,13 @@ const weekNo = (v: Cell): number => {
   const m = /(\d)/.exec(str(v));
   return m ? Math.min(5, Math.max(1, Number(m[1]))) : 1;
 };
-function dateFor(year: number, mi: number, week: number): ISODate {
-  const last = new Date(year, mi + 1, 0).getDate();
-  return `${year}-${pad(mi + 1)}-${pad(Math.min(last, 1 + 7 * (week - 1)))}`;
+/** Rows only carry month + week: place them on the first day of that week of the budget month. */
+function dateFor(starts: Record<string, string>, year: number, mi: number, week: number): ISODate {
+  const month = `${year}-${pad(mi + 1)}`;
+  const start = starts[month] ?? ruleStart(month, 'weeks');
+  const nextStart = starts[shiftMonth(month, 1)] ?? ruleStart(shiftMonth(month, 1), 'weeks');
+  const d = addDays(start, 7 * (week - 1));
+  return d < nextStart ? d : addDays(nextStart, -1);
 }
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -121,8 +128,19 @@ export function parseWorkbook(wb: WorkbookData, opts: ParseOptions = {}): Import
     unmappedCategories: [],
     skipped: [],
     issues: [],
-    checks: []
+    checks: [],
+    periodStarts: {}
   };
+
+  // ---------- budget months: week-1 start dates from the budget sheets (cell K3) ----------
+  for (const t of tables.filter((t) => t.headers.includes('Baseline') && t.headers.includes('Closed') && t.headers.includes('Code'))) {
+    const mi = monthIndex(wb.cell(t.sheet, 'J2'));
+    const sheetMi = monthIndex(t.sheet.replace(/^Budget\s*/i, ''));
+    const k3 = wb.cell(t.sheet, 'K3');
+    if (mi < 0 || !(k3 instanceof Date)) continue;
+    if (sheetMi >= 0 && sheetMi !== mi) continue; // mislabelled copy
+    plan.periodStarts[`${year}-${pad(mi + 1)}`] = k3.toISOString().slice(0, 10);
+  }
 
   // ---------- categories ----------
   const catTable = tables.find((t) => t.name === 'Category' && t.headers.includes('Sub Code'));
@@ -202,7 +220,7 @@ export function parseWorkbook(wb: WorkbookData, opts: ParseOptions = {}): Import
         continue;
       }
       const amount = toMinor(amountRaw);
-      const date = dateFor(year, mi, weekNo(v['Week']));
+      const date = dateFor(plan.periodStarts, year, mi, weekNo(v['Week']));
       let code = str(v['Sub Code']);
       if (!CODE_RE.test(code)) code = resolveCategory(rawCategory) ?? '';
       // Opening balance rows: "Transfer … Start" or a Starting Balance category.

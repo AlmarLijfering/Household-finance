@@ -4,9 +4,12 @@ import type { Split, Transaction, ID } from '../lib/types';
 import { useModel } from '../lib/useModel';
 import { nowIso, today, uid, fmtMoney, sum } from '../lib/util';
 import { AmountInput, Field, Icon, Modal, Seg, useToast, Money } from './ui';
-import { categoryAllowed, type Model } from '../lib/calc/model';
+import { categoryAllowed, categoryActiveOn, type Model } from '../lib/calc/model';
 import { CategoryForm } from './CategoryForm';
 import { nextOccurrence } from '../lib/calc/recurring';
+import { BudgetDatePicker } from './BudgetDatePicker';
+import { lastBookableMonth, monthOfDate } from '../lib/calc/period';
+import { monthLabel, shiftMonth } from '../lib/util';
 
 export interface TxDraft {
   id?: ID; // edit existing
@@ -21,10 +24,12 @@ export interface TxDraft {
   recurringId?: ID; // posting a bill/income: the schedule advances when saved
 }
 
-export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true }: { value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean }) {
+export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true, date, showEnded }: { value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean; date?: string; showEnded?: boolean }) {
   const [creating, setCreating] = useState(false);
   const account = accountId ? m.accountById.get(accountId) : undefined;
-  const visible = (c: Model['categories'][number]) => !c.archived && (c.id === value || categoryAllowed(c, account));
+  const on = date ?? today();
+  // ended categories are only offered for dates up to their end (filters can show them all)
+  const visible = (c: Model['categories'][number]) => !c.archived && (c.id === value || (categoryAllowed(c, account) && (showEnded || categoryActiveOn(c, on))));
   const firstGroup = m.groups.find((g) => !filter || filter(g.kind));
   return (
     <>
@@ -46,6 +51,7 @@ export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, 
               .map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
+                  {!categoryActiveOn(c, on) ? ` (ended ${c.activeUntil})` : ''}
                   {c.section && c.section !== g.name ? ` · ${c.section}` : ''}
                 </option>
               ))}
@@ -98,10 +104,16 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
   const [amount, setAmount] = useState(Math.abs(existing?.amount ?? draft.amount ?? 0));
   const [payee, setPayee] = useState(existing?.payee ?? draft.payee ?? '');
   const [memo, setMemo] = useState(existing?.memo ?? draft.memo ?? '');
+  // bills/income meant for next month (e.g. a salary advance) start out counted for the next budget month
+  const [budgetMonth, setBudgetMonth] = useState<string>(
+    (outSide ?? existing)?.budgetMonth ?? (!existing && rec?.countsFor === 'next' ? shiftMonth(monthOfDate(m, draft.date ?? today()), 1) : '')
+  );
+  const [monthTouched, setMonthTouched] = useState(false);
   const [categoryId, setCategoryId] = useState<ID | null>((outSide ?? existing)?.categoryId ?? draft.categoryId ?? null);
   const [splits, setSplits] = useState<Split[]>(existing?.splits?.map((s) => ({ ...s, amount: Math.abs(s.amount) })) ?? []);
-  const [cleared, setCleared] = useState(existing ? existing.status !== 'uncleared' : false);
-  const reconciled = existing?.status === 'reconciled';
+  // Clearing and reconciliation are not used: the status is kept only for older data.
+  const cleared = existing ? existing.status !== 'uncleared' : true;
+  const reconciled = false;
 
   const payees = useMemo(() => {
     const map = new Map<string, ID | null>();
@@ -112,7 +124,15 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
   const splitTotal = sum(splits.map((s) => s.amount));
   const splitLeft = amount - splitTotal;
   const acc = m.accountById.get(accountId);
-  const valid = amount > 0 && accountId && (kind !== 'transfer' || (toAccountId && toAccountId !== accountId)) && (!splits.length || splitLeft === 0);
+  const dateMonth = monthOfDate(m, date);
+  const effMonth = budgetMonth || dateMonth;
+  const maxMonth = lastBookableMonth(m);
+  const tooEarly = effMonth > maxMonth;
+  const monthOptions = [shiftMonth(dateMonth, -1), dateMonth, shiftMonth(dateMonth, 1)].filter((x) => x <= maxMonth);
+  const endedCats = (splits.length ? splits.map((s) => s.categoryId) : [categoryId])
+    .map((id) => (id ? m.categoryById.get(id) : undefined))
+    .filter((c) => c && !categoryActiveOn(c, date)) as Array<{ name: string; activeUntil?: string }>;
+  const valid = !endedCats.length && !tooEarly && amount > 0 && accountId && (kind !== 'transfer' || (toAccountId && toAccountId !== accountId)) && (!splits.length || splitLeft === 0);
 
   async function save() {
     const at = nowIso();
@@ -148,7 +168,15 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
       };
       changes.push({ table: 'transactions', put: t });
     }
+    if (rec) for (const c of changes) if (c.put && c.put.accountId === accountId) c.put.recurringId = rec.id;
     if (rec) changes.push({ table: 'recurring', put: { ...rec, nextDate: nextOccurrence(rec, rec.nextDate) } });
+    for (const c of changes)
+      if (c.put) {
+        c.put.budgetMonth = budgetMonth && budgetMonth !== monthOfDate(m, c.put.date) ? budgetMonth : undefined;
+        // choosing the date's own month on purpose means: checked, no earmark warning
+        if (monthTouched && !c.put.budgetMonth) c.put.monthConfirmed = true;
+        if (c.put.budgetMonth) c.put.monthConfirmed = undefined;
+      }
     await commit(changes, existing ? 'Edit transaction' : rec ? `Paid ${rec.name}` : 'Add transaction');
     toast(existing ? 'Transaction saved' : rec ? `${rec.name} recorded — next due ${nextOccurrence(rec, rec.nextDate)}` : 'Transaction added');
     onClose();
@@ -208,15 +236,15 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
             </Field>
           ) : (
             <Field label="Date">
-              <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <BudgetDatePicker m={m} value={date} onChange={setDate} />
             </Field>
           )}
           <Field label={`Amount${acc && acc.currency !== m.settings.baseCurrency ? ` (${acc.currency})` : ''}`}>
-            <AmountInput value={amount} onChange={setAmount} autoFocus={!existing} />
+            <AmountInput live value={amount} onChange={setAmount} autoFocus={!existing} />
           </Field>
           {kind === 'transfer' ? (
             <Field label="Date">
-              <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <BudgetDatePicker m={m} value={date} onChange={setDate} />
             </Field>
           ) : (
             <Field label={kind === 'income' ? 'From' : 'Payee'}>
@@ -240,7 +268,7 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
           )}
           {!splits.length ? (
             <Field label={kind === 'transfer' ? 'Budget category (optional)' : 'Category'} className="full" help={kind === 'transfer' ? 'Use a reservation category when this transfer sets money aside, so it counts in the budget.' : undefined}>
-              <CategorySelect m={m} value={categoryId} onChange={setCategoryId} filter={catFilter} accountId={accountId} />
+              <CategorySelect m={m} value={categoryId} onChange={setCategoryId} filter={catFilter} accountId={accountId} date={date} />
             </Field>
           ) : null}
         </div>
@@ -265,8 +293,8 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
               <div className="stack" style={{ marginTop: 12 }}>
                 {splits.map((s, i) => (
                   <div className="split-row" key={s.id}>
-                    <CategorySelect ariaLabel={`Split ${i + 1} category`} m={m} value={s.categoryId} onChange={(v) => setSplits(splits.map((x) => (x.id === s.id ? { ...x, categoryId: v } : x)))} filter={catFilter} accountId={accountId} />
-                    <AmountInput ariaLabel={`Split ${i + 1} amount`} value={s.amount} onChange={(v) => setSplits(splits.map((x) => (x.id === s.id ? { ...x, amount: v } : x)))} />
+                    <CategorySelect ariaLabel={`Split ${i + 1} category`} m={m} value={s.categoryId} onChange={(v) => setSplits(splits.map((x) => (x.id === s.id ? { ...x, categoryId: v } : x)))} filter={catFilter} accountId={accountId} date={date} />
+                    <AmountInput live ariaLabel={`Split ${i + 1} amount`} value={s.amount} onChange={(v) => setSplits(splits.map((x) => (x.id === s.id ? { ...x, amount: v } : x)))} />
                     <button className="icon-btn" aria-label="Remove split line" onClick={() => setSplits(splits.filter((x) => x.id !== s.id))}>
                       <Icon name="x" size={16} />
                     </button>
@@ -285,13 +313,31 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
         ) : null}
 
         <div className="form-grid">
-          <Field label="Memo" className="full">
+          <Field label="Counts for budget month" help={budgetMonth && budgetMonth !== dateMonth ? `Booked on ${date} but counted in ${monthLabel(budgetMonth)}: not in ${monthLabel(dateMonth)}'s budget or balance.` : 'Change this for money meant for another month, e.g. the salary advance for next month.'}>
+            <select className="input" aria-label="Counts for budget month" value={budgetMonth && budgetMonth !== dateMonth ? budgetMonth : ''} onChange={(e) => { setBudgetMonth(e.target.value); setMonthTouched(true); }}>
+              <option value="">{monthLabel(dateMonth)} (from the date)</option>
+              {monthOptions.filter((x) => x !== dateMonth).map((x) => (
+                <option key={x} value={x}>
+                  {monthLabel(x)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Memo">
             <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Optional note" />
           </Field>
         </div>
-        <label className="check">
-          <input type="checkbox" checked={cleared} disabled={reconciled} onChange={(e) => setCleared(e.target.checked)} /> Cleared — this already shows on the bank statement
-        </label>
+
+        {endedCats.length ? (
+          <div className="notice bad small">
+            {endedCats.map((c) => `“${c.name}” ended on ${c.activeUntil}`).join(', ')} — pick another category or an earlier date.
+          </div>
+        ) : null}
+        {tooEarly ? (
+          <div className="notice bad small">
+            {monthLabel(effMonth)} is not open for booking yet. You can book up to {monthLabel(maxMonth)}; plan later months in the budget or the forecast instead.
+          </div>
+        ) : null}
         {kind === 'transfer' && acc && m.accountById.get(toAccountId)?.currency !== acc.currency ? (
           <div className="notice info small">
             Different currencies: the receiving side is converted at the rate for {date}. <Money v={amount} cur={acc.currency} />

@@ -6,7 +6,7 @@ import { Money } from './ui';
  * The month on one bar, drawn to scale:
  * money you have now + income still to come, against what is still to be paid.
  */
-export function Runway({ r, title, note }: { r: R; title: string; note?: string }) {
+export function Runway({ r, title, note, startLabel }: { r: R; title: string; note?: string; startLabel?: string }) {
   const inflow = Math.max(0, r.available) + Math.max(0, r.incomeToCome);
   const total = Math.max(inflow, r.costsToPay, 1);
   const pct = (v: number) => `${(Math.max(0, v) / total) * 100}%`;
@@ -24,7 +24,7 @@ export function Runway({ r, title, note }: { r: R; title: string; note?: string 
         </div>
         <dl className="runway-legend">
           <dt>
-            <span className="swatch seg-have" /> In current accounts and cash
+            <span className="swatch seg-have" /> {startLabel ?? 'In current accounts and cash'}
           </dt>
           <dd>
             <Money v={r.available} />

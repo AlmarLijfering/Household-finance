@@ -113,10 +113,21 @@ describe('month-aware balance, category scope, drill-down', () => {
       { id: 't2', accountId: 'a', date: `${prev}-06`, amount: 50000, categoryId: 'sal', status: 'cleared', createdAt: '', updatedAt: '' }
     ]
   });
-  it('a month that has not started has nothing in current accounts', () => {
-    expect(availableFor(m, shiftMonth(cm, 1))).toBe(0);
+  it('month balances: current, next (carry over), later (0)', () => {
     expect(availableFor(m, cm)).toBe(130000);
     expect(availableFor(m, shiftMonth(cm, -2))).toBe(100000);
+    // no budget lines: next month carries over exactly what this month holds
+    expect(availableFor(m, shiftMonth(cm, 1))).toBe(130000);
+    expect(availableFor(m, shiftMonth(cm, 2))).toBe(0);
+  });
+  it('money booked for next month stays out of this month and is carried in next month', () => {
+    const next = shiftMonth(cm, 1);
+    const m2 = base({ ...m, transactions: [...m.transactions, { id: 'adv', accountId: 'a', date: `${cm}-25` > `${cm}-28` ? `${cm}-20` : `${cm}-20`, amount: 900000, categoryId: 'sal', budgetMonth: next, status: 'cleared', createdAt: '', updatedAt: '' }] });
+    expect(availableFor(m2, cm)).toBe(130000); // the advance is not part of this month
+    expect(availableFor(m2, next)).toBe(130000 + 900000); // carry over + booked for next month
+    const mb = computeMonth(m2, next);
+    expect(mb.start.carry).toBe(130000);
+    expect(mb.start.booked).toBe(900000);
   });
   it('categories can be limited to account types or accounts', () => {
     const med = m.categoryById.get('med')!;
@@ -130,5 +141,131 @@ describe('month-aware balance, category scope, drill-down', () => {
     expect(drillLines(m, { title: '', from: prev, type: 'income' }).map((l) => l.tx.id)).toEqual(['t2']);
     expect(drillLines(m, { title: '', from: prev, groupCode: 'PC' }).map((l) => l.tx.id)).toEqual(['t1']);
     expect(drillLines(m, { title: '', from: cm })).toHaveLength(0);
+  });
+});
+
+import { ruleStart, monthOfDate, weekOfPeriod, periodEnd } from '../src/lib/calc/period';
+import { historyFor } from '../src/lib/calc/recurring';
+
+describe('budget months in whole weeks', () => {
+  it('starts on the Monday nearest the 1st, like the workbook', () => {
+    expect(ruleStart('2026-10', 'weeks')).toBe('2026-09-28'); // 1 Oct is a Thursday
+    expect(ruleStart('2026-11', 'weeks')).toBe('2026-11-02'); // Sunday → next Monday
+    expect(ruleStart('2026-12', 'weeks')).toBe('2026-11-30');
+    expect(ruleStart('2027-01', 'weeks')).toBe('2027-01-04');
+    expect(ruleStart('2026-11', 'calendar')).toBe('2026-11-01');
+  });
+  it('dates fall in the right budget month and week; own dates override the rule', () => {
+    const m = base({ monthPlans: [{ id: '2026-12', startDate: '2026-12-07', updatedAt: '' }] });
+    expect(monthOfDate(m, '2026-11-01')).toBe('2026-10');
+    expect(monthOfDate(m, '2026-11-02')).toBe('2026-11');
+    expect(periodEnd(m, '2026-11')).toBe('2026-12-06'); // November stretched to 5 weeks
+    expect(monthOfDate(m, '2026-12-03')).toBe('2026-11');
+    expect(weekOfPeriod(m, '2026-11-09')).toBe(2);
+    expect(weekOfPeriod(m, '2026-12-06')).toBe(5);
+  });
+  it('bill history matches on payee or on the item it was recorded from', () => {
+    const r: any = { id: 'r1', name: 'Netflix', kind: 'subscription', amount: 7250 };
+    const t = (id: string, payee: string, extra: any = {}) => ({ id, payee, accountId: 'a', date: '2026-01-0' + id.length, amount: -7250, categoryId: null, status: 'cleared', createdAt: '', updatedAt: '', ...extra });
+    const h = historyFor([t('1', 'NETFLIX'), t('22', 'Spotify'), t('333', 'other', { recurringId: 'r1' })] as any, r);
+    expect(h.map((x) => x.id).sort()).toEqual(['1', '333']);
+  });
+});
+
+import { earmarkHints } from '../src/lib/calc/earmark';
+import { periodEnd as pEnd } from '../src/lib/calc/period';
+import { addDays as add } from '../src/lib/util';
+
+describe('earmark warnings', () => {
+  const cm = currentMonth();
+  const acc = { id: 'a', code: 'CUR001', name: 'A', type: 'current', currency: 'RON', openingBalance: 0, openingDate: '2020-01-01', sort: 0, updatedAt: '' };
+  const gi = { id: 'gi', code: 'IC', name: 'Income', kind: 'income', sort: 0, updatedAt: '' };
+  const sal = { id: 'sal', code: 'IC011', name: 'Salary', groupId: 'gi', sort: 0, updatedAt: '' };
+  const rec = { id: 'r', name: 'Salary advance', payee: 'Nagarro', kind: 'income', accountId: 'a', categoryId: 'sal', amount: 900000, frequency: 'monthly', interval: 1, startDate: '2026-01-25', nextDate: '2026-01-25', active: true, countsFor: 'next', updatedAt: '' };
+  it('flags a late-month advance that is not earmarked, not an early one or an earmarked one', () => {
+    const base0 = base({ accounts: [acc], groups: [gi], categories: [sal], recurring: [rec] });
+    const late = add(pEnd(base0, cm), -4);
+    const early = add(pEnd(base0, cm), -20);
+    const tx = (id: string, date: string, extra: any = {}) => ({ id, accountId: 'a', date, amount: 900000, payee: 'Nagarro', categoryId: 'sal', status: 'cleared', createdAt: '', updatedAt: '', ...extra });
+    const m = base({ accounts: [acc], groups: [gi], categories: [sal], recurring: [rec], transactions: [tx('late', late), tx('early', early), tx('done', late, { budgetMonth: shiftMonth(cm, 1) }), tx('ok', late, { monthConfirmed: true })] });
+    const h = earmarkHints(m);
+    expect([...h.keys()]).toEqual(['late']);
+    expect(h.get('late')!.suggested).toBe(shiftMonth(cm, 1));
+  });
+});
+
+import { planBulk } from '../src/lib/bulk';
+
+describe('mass update', () => {
+  const accs = [
+    { id: 'a', code: 'CUR001', name: 'A', type: 'current', currency: 'RON', openingBalance: 0, openingDate: '2020-01-01', sort: 0, updatedAt: '' },
+    { id: 'b', code: 'CUR002', name: 'B', type: 'current', currency: 'RON', openingBalance: 0, openingDate: '2020-01-01', sort: 1, updatedAt: '' },
+    { id: 'e', code: 'SAV1', name: 'E', type: 'savings', currency: 'EUR', openingBalance: 0, openingDate: '2020-01-01', sort: 2, updatedAt: '' }
+  ];
+  const groups = [
+    { id: 'gi', code: 'IC', name: 'Income', kind: 'income', sort: 0, updatedAt: '' },
+    { id: 'gp', code: 'PC', name: 'Planned', kind: 'expense', sort: 1, updatedAt: '' },
+    { id: 'gr', code: 'RE', name: 'Res', kind: 'reservation', sort: 2, updatedAt: '' }
+  ];
+  const cats = [
+    { id: 'food', code: 'PC061', name: 'Food', groupId: 'gp', sort: 0, updatedAt: '' },
+    { id: 'sal', code: 'IC011', name: 'Salary', groupId: 'gi', sort: 1, updatedAt: '' },
+    { id: 'tax', code: 'RE011', name: 'Taxes', groupId: 'gr', sort: 2, updatedAt: '' }
+  ];
+  const tx = (id: string, accountId: string, amount: number, extra: any = {}) => ({ id, accountId, date: '2026-10-05', amount, payee: 'x', categoryId: null, status: 'cleared', createdAt: '', updatedAt: '', ...extra });
+  const m = base({
+    accounts: accs, groups, categories: cats,
+    transactions: [
+      tx('out1', 'a', -1000), tx('out2', 'a', -2000), tx('in1', 'a', 5000),
+      tx('t-out', 'a', -3000, { transferId: 'T', transferAccountId: 'b' }), tx('t-in', 'b', 3000, { transferId: 'T', transferAccountId: 'a' })
+    ]
+  });
+  it('category: only where the type fits; transfers get it on the outgoing side', () => {
+    const r = planBulk(m, ['out1', 'out2', 'in1', 't-out'], { categoryId: 'food' });
+    const got = new Map(r.changes.map((c) => [c.put.id, c.put]));
+    expect(got.get('out1').categoryId).toBe('food');
+    expect(got.has('in1')).toBe(false);
+    expect(got.has('t-out')).toBe(false);
+    expect(r.skipped.map((s) => s.reason).sort()).toEqual(['Money in needs an income category', 'Transfers only take reservation or transfer categories']);
+    const r2 = planBulk(m, ['t-in'], { categoryId: 'tax' });
+    expect(r2.changes.find((c) => c.put.id === 't-out')!.put.categoryId).toBe('tax');
+  });
+  it('account, date, payee and budget month; transfers stay in step', () => {
+    const r = planBulk(m, ['out1', 't-out'], { accountId: 'b', payee: 'New', date: '2026-10-06', budgetMonth: '2026-11' });
+    const got = new Map(r.changes.map((c) => [c.put.id, c.put]));
+    expect(got.get('out1')).toMatchObject({ accountId: 'b', payee: 'New', date: '2026-10-06', budgetMonth: '2026-11' });
+    // transfer side to b would make both sides the same account → account skipped, rest applied to both sides
+    expect(got.get('t-out')).toMatchObject({ accountId: 'a', payee: 'New', date: '2026-10-06' });
+    expect(got.get('t-in')).toMatchObject({ payee: 'New', date: '2026-10-06' });
+    expect(r.skipped[0].reason).toMatch(/same account/);
+    // amounts and type never change
+    expect(got.get('out1').amount).toBe(-1000);
+    const eur = planBulk(m, ['out2'], { accountId: 'e' });
+    expect(eur.changes).toHaveLength(0);
+    expect(eur.skipped[0].reason).toMatch(/currency/);
+  });
+});
+
+import { linesForCopy } from '../src/lib/calc/budget';
+import { categoryActiveOn } from '../src/lib/calc/model';
+
+describe('categories with an end date', () => {
+  const g = { id: 'g', code: 'PC', name: 'Planned', kind: 'expense', sort: 1, updatedAt: '' };
+  const cats = [
+    { id: 'old', code: 'PC014', name: 'DIGI Bucharest', groupId: 'g', sort: 0, activeUntil: '2026-10-31', updatedAt: '' },
+    { id: 'food', code: 'PC061', name: 'Food', groupId: 'g', sort: 1, updatedAt: '' }
+  ];
+  const line = (id: string, month: string, categoryId: string) => ({ id, month, categoryId, baseline: 10000, estimate: 10000, closed: false, sort: 0, updatedAt: '' });
+  const m = base({ groups: [g], categories: cats, budgetLines: [line('a', '2026-10', 'old'), line('b', '2026-11', 'old'), line('c', '2026-11', 'food')] });
+  it('drops out of budget months that start after the end date, also when a line exists', () => {
+    expect(computeMonth(m, '2026-10').lines.map((l) => l.line.id)).toEqual(['a']); // October starts 28 Sep
+    expect(computeMonth(m, '2026-11').lines.map((l) => l.line.id)).toEqual(['c']);
+    expect(linesForCopy(m, '2026-10', '2026-11', () => 'x').length).toBe(0);
+  });
+  it('can be booked up to and including its last day', () => {
+    expect(categoryActiveOn(m.categoryById.get('old'), '2026-10-31')).toBe(true);
+    expect(categoryActiveOn(m.categoryById.get('old'), '2026-11-01')).toBe(false);
+    const r = planBulk(m, [], {});
+    expect(r.changes).toHaveLength(0);
   });
 });

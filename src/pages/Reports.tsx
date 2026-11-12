@@ -3,7 +3,8 @@ import { useModel } from '../lib/useModel';
 import { balanceHistory, cashFlow, incomeByCategory, spendingByCategory } from '../lib/calc/reports';
 import { CashFlowChart, TrendChart, SERIES } from '../components/charts';
 import { Icon, Money, Seg, useToast } from '../components/ui';
-import { currentMonth, MONTHS, shiftMonth, sum } from '../lib/util';
+import { MONTHS, shiftMonth, sum } from '../lib/util';
+import { currentBudgetMonth } from '../lib/calc/period';
 import { useSyncStatus, runSync } from '../lib/useSync';
 import { isReserve } from '../lib/calc/model';
 import { DrillMoney } from '../components/DrillDown';
@@ -16,7 +17,7 @@ export default function Reports() {
   const toast = useToast();
   const sync = useSyncStatus();
   const [tab, setTab] = useState<Tab>('cash');
-  const [to, setTo] = useState(currentMonth());
+  const [to, setTo] = useState(currentBudgetMonth(m));
   const [span, setSpan] = useState<'6' | '12' | 'year'>('12');
   const [acc, setAcc] = useState('all');
   const [busy, setBusy] = useState(false);

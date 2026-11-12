@@ -196,6 +196,12 @@ export function buildCommit(plan: ImportPlan, m: Model, o: CommitOptions): { cha
     changes.push({ table: 'yearlyFunds', put: fund });
   }
 
+  // budget months keep the workbook's own start dates
+  for (const [month, startDate] of Object.entries(plan.periodStarts)) {
+    const ex = m.monthPlans.find((p) => p.id === month);
+    changes.push({ table: 'monthPlans', put: { ...(ex ?? { id: month }), startDate, updatedAt: at } });
+  }
+
   if (o.includeFx)
     for (const r of plan.fx) {
       const rec: FxRate = { id: `${r.currency}:${r.date}`, date: r.date, currency: r.currency, rate: r.rate, updatedAt: at };

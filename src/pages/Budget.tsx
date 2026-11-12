@@ -5,7 +5,8 @@ import { commit, put, del } from '../lib/db';
 import { AmountInput, Field, Icon, Meter, Modal, Money, Seg, useToast, Confirm } from '../components/ui';
 import { CategorySelect } from '../components/TxEditor';
 import { Runway } from '../components/Runway';
-import { currentMonth, monthLabel, shiftMonth, uid, sum, MONTHS, cx } from '../lib/util';
+import { monthLabel, shiftMonth, uid, sum, MONTHS, cx, fmtDate, addDays, daysBetween } from '../lib/util';
+import { currentBudgetMonth, period, periodRule, ruleStart, weekRange } from '../lib/calc/period';
 import type { BudgetLine, Rollover, Category, MonthPlan } from '../lib/types';
 import { DrillMoney, type DrillFilter } from '../components/DrillDown';
 import { CategoryForm } from '../components/CategoryForm';
@@ -14,7 +15,7 @@ import type { Model } from '../lib/calc/model';
 export default function Budget() {
   const m = useModel();
   const [view, setView] = useState<'month' | 'year'>('month');
-  const [month, setMonth] = useState(currentMonth());
+  const [month, setMonth] = useState(currentBudgetMonth(m));
   return (
     <div>
       <div className="page-head">
@@ -29,7 +30,7 @@ export default function Budget() {
   );
 }
 
-function MonthSwitch({ month, setMonth }: { month: string; setMonth: (m: string) => void }) {
+function MonthSwitch({ month, setMonth, now }: { month: string; setMonth: (m: string) => void; now: string }) {
   return (
     <div className="row">
       <button className="icon-btn" aria-label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}>
@@ -39,8 +40,8 @@ function MonthSwitch({ month, setMonth }: { month: string; setMonth: (m: string)
       <button className="icon-btn" aria-label="Next month" onClick={() => setMonth(shiftMonth(month, 1))}>
         <Icon name="chev" />
       </button>
-      {month !== currentMonth() ? (
-        <button className="btn sm ghost" onClick={() => setMonth(currentMonth())}>
+      {month !== now ? (
+        <button className="btn sm ghost" onClick={() => setMonth(now)}>
           Today
         </button>
       ) : null}
@@ -60,23 +61,21 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
     }
     return null;
   }, [m, month]);
-  const isCurrent = month === currentMonth();
-  const isFuture = month > currentMonth();
+  const now = currentBudgetMonth(m);
+  const isCurrent = month === now;
+  const isFuture = month > now;
+  const per = period(m, month);
+  const [editPeriod, setEditPeriod] = useState(false);
+  // only categories used on current accounts or cash count as "missing" from the budget
+  const everydayMissing = mb.unbudgeted.filter((u) => u.everyday);
   const groupFilter = (code: string, name: string): DrillFilter => ({ title: name, from: month, groupCode: code });
 
   async function copyFrom(src: string) {
     const lines = linesForCopy(m, src, month, uid);
-    // Like the workbook: what is projected to be left last month comes in as "Remainder last month".
+    // What last month leaves over arrives through the "Carry over" row, so "Remainder last month" stays empty.
     const remainderCat = m.categories.find((c) => c.code === 'IC015');
-    const left = computeMonth(m, src).runway.free;
-    let note = '';
-    if (remainderCat && src === shiftMonth(month, -1)) {
-      const line = lines.find((l) => l.categoryId === remainderCat.id);
-      const amount = Math.max(0, left);
-      if (line) Object.assign(line, { baseline: amount, estimate: amount });
-      else if (amount) lines.unshift({ id: uid(), month, categoryId: remainderCat.id, baseline: amount, estimate: amount, closed: false, sort: -1, updatedAt: '' });
-      if (amount) note = ` · remainder of ${monthLabel(src)} added as income`;
-    }
+    for (const l of lines) if (remainderCat && l.categoryId === remainderCat.id) Object.assign(l, { baseline: 0, estimate: 0 });
+    const note = '';
     await commit(lines.map((l) => ({ table: 'budgetLines' as const, put: l })), `Create budget ${month}`);
     toast(`${lines.length} lines copied from ${monthLabel(src)}${note}`);
   }
@@ -101,7 +100,17 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
   return (
     <>
       <div className="row wrap" style={{ justifyContent: 'space-between', marginBottom: 'var(--s4)' }}>
-        <MonthSwitch month={month} setMonth={setMonth} />
+        <div className="row wrap">
+          <MonthSwitch month={month} setMonth={setMonth} now={now} />
+          <button className="btn sm ghost" onClick={() => setEditPeriod(true)} title="Change the first and last day of this budget month">
+            {fmtDate(per.start)} – {fmtDate(per.end, true)} · {per.days % 7 === 0 ? `${per.weeks} weeks` : `${per.days} days`}
+          </button>
+          {month > shiftMonth(now, 1) ? (
+            <span className="badge" title="Nothing can be booked for this month yet; you can already plan its budget">
+              Planning only — opens for booking in {monthLabel(shiftMonth(month, -1))}
+            </span>
+          ) : null}
+        </div>
         <div className="actions">
           {mb.lines.length ? (
             <>
@@ -138,14 +147,15 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
         </div>
       ) : (
         <>
-          {!(month < currentMonth()) ? (
+          {!(month < now) ? (
             <Runway
               r={mb.runway}
               title="Free at month end"
-              note={isFuture ? `${monthLabel(month)} has not started, so the accounts hold nothing for it yet${mb.start.estimate ? ' — your starting estimate is used instead' : ''}. Income and costs below are what you plan.` : 'Current accounts and cash now, plus income still to come, minus what is still open below.'}
+              startLabel={mb.start.when === 'next' ? 'Carried over and booked' : mb.start.when === 'later' ? 'Starting money (month not open)' : undefined}
+              note={mb.start.when === 'next' ? `Starts with what ${monthLabel(shiftMonth(month, -1))} is projected to leave over, plus anything already booked for ${monthLabel(month)}.` : mb.start.when === 'later' ? `${monthLabel(month)} is not open yet: it starts at 0 and nothing can be booked for it yet. Income and costs below are your plan.` : 'Current accounts and cash now, plus income still to come, minus what is still open below.'}
             />
           ) : null}
-          <div className="panel flush section" style={{ marginTop: month < currentMonth() ? 0 : 'var(--s5)' }}>
+          <div className="panel flush section" style={{ marginTop: month < now ? 0 : 'var(--s5)' }}>
             <div className="table-wrap">
               <table className="t">
                 <thead>
@@ -158,10 +168,44 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
                   </tr>
                 </thead>
                 <tbody>
+                  {mb.start.when === 'next' ? (
+                    <>
+                      <tr>
+                        <td>
+                          Carry over from {monthLabel(shiftMonth(month, -1))}
+                          <div className="small muted">Projected free money at the end of that month</div>
+                        </td>
+                        <td className="desk-only" />
+                        <td />
+                        <td />
+                        <td className="r"><Money v={mb.start.carry} tone={mb.start.carry < 0} /></td>
+                      </tr>
+                      <tr>
+                        <td>
+                          Already booked for {monthLabel(month)}
+                          <div className="small muted">Received or paid early, counted for this month</div>
+                        </td>
+                        <td className="desk-only" />
+                        <td />
+                        <td />
+                        <td className="r">
+                          <DrillMoney v={mb.start.booked} tone f={{ title: `Booked for ${monthLabel(month)}`, from: month, accountIds: m.accounts.filter((a) => a.type === 'current' || a.type === 'cash').map((a) => a.id) }} />
+                        </td>
+                      </tr>
+                    </>
+                  ) : null}
                   <tr>
                     <td>
-                      In current accounts and cash
-                      <div className="small muted">{isFuture ? 'Not started — uses your estimate' : isCurrent ? 'Balance today' : 'Balance at month end'}</div>
+                      {mb.start.when === 'next' ? 'Your own starting figures' : 'In current accounts and cash'}
+                      <div className="small muted">
+                        {mb.start.when === 'later'
+                          ? 'Month not open yet — starts at 0'
+                          : mb.start.when === 'next'
+                            ? 'Optional plan; the carry over above is what counts'
+                            : mb.start.when === 'current'
+                              ? 'Booked up to now, without money for later months'
+                              : 'At month end, without money for later months'}
+                      </div>
                     </td>
                     <td className="r desk-only">
                       <AmountInput inline ariaLabel="Starting money, baseline" value={plan.startBaseline ?? 0} onChange={(v) => v !== (plan.startBaseline ?? 0) && savePlan({ startBaseline: v || undefined })} />
@@ -170,7 +214,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
                       <AmountInput inline ariaLabel="Starting money, estimate" value={plan.startEstimate ?? 0} onChange={(v) => v !== (plan.startEstimate ?? 0) && savePlan({ startEstimate: v || undefined })} />
                     </td>
                     <td />
-                    <td className="r"><Money v={mb.start.balance} /></td>
+                    <td className="r">{mb.start.when === 'next' ? <span className="muted">—</span> : <Money v={mb.start.balance} />}</td>
                   </tr>
                   {totals.map((g) => (
                     <tr key={g.code}>
@@ -224,12 +268,12 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
                   {sections.map((s) => (
                     <Section key={s.groupCode + s.name} name={s.name} lines={s.lines} m={m} update={update} isFuture={isFuture} month={month} onEditCategory={setEditCat} />
                   ))}
-                  {mb.unbudgeted.length ? (
+                  {everydayMissing.length ? (
                     <>
                       <tr className="group">
-                        <td colSpan={9}>Not in the budget</td>
+                        <td colSpan={9}>Not in the budget <span className="small muted" style={{ fontFamily: 'var(--body)', fontWeight: 400 }}>— everyday categories with spending but no budget line</span></td>
                       </tr>
-                      {mb.unbudgeted.map((u) => {
+                      {everydayMissing.map((u) => {
                         const c = m.categoryById.get(u.categoryId);
                         return (
                           <tr key={u.categoryId}>
@@ -259,6 +303,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
       )}
       {adding ? <LineForm m={m} initial={adding} onClose={() => setAdding(null)} /> : null}
       {editCat ? <CategoryForm initial={editCat} onClose={() => setEditCat(null)} /> : null}
+      {editPeriod ? <PeriodForm m={m} month={month} onClose={() => setEditPeriod(false)} /> : null}
       {confirmClear ? (
         <Confirm
           title={`Remove the ${monthLabel(month)} budget?`}
@@ -294,7 +339,13 @@ function Section({ name, lines, m, update, isFuture, month, onEditCategory }: { 
               <button type="button" className="drill" style={{ textDecoration: 'none', fontWeight: 500 }} onClick={() => c && onEditCategory(c)} title="Edit category">
                 {r.line.label ?? c?.name}
               </button>
-              {r.line.label && r.line.label !== c?.name ? <div className="small muted">{c?.name}</div> : null}
+              {r.line.week ? (
+                <div className="small muted">
+                  {c?.name} · {fmtDate(weekRange(m, month, r.line.week).start)} – {fmtDate(weekRange(m, month, r.line.week).end)}
+                </div>
+              ) : r.line.label && r.line.label !== c?.name ? (
+                <div className="small muted">{c?.name}</div>
+              ) : null}
             </td>
             <td className="r desk-only">
               <AmountInput inline ariaLabel={`Baseline for ${r.line.label ?? c?.name}`} value={r.line.baseline} onChange={(v) => v !== r.line.baseline && update(r.line, { baseline: v })} />
@@ -380,7 +431,7 @@ function LineForm({ m, initial, onClose }: { m: Model; initial: Partial<BudgetLi
     >
       <div className="form-grid">
         <Field label="Category" className="full">
-          <CategorySelect m={m} value={categoryId} onChange={(v) => { setCategoryId(v); setRollover(m.categoryById.get(v ?? '')?.rollover ?? 'none'); }} allowEmpty={false} />
+          <CategorySelect m={m} value={categoryId} onChange={(v) => { setCategoryId(v); setRollover(m.categoryById.get(v ?? '')?.rollover ?? 'none'); }} allowEmpty={false} date={period(m, initial.month!).start} />
         </Field>
         <Field label="Label (optional)" help="e.g. “Food week 2” when one category has several lines">
           <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
@@ -388,11 +439,14 @@ function LineForm({ m, initial, onClose }: { m: Model; initial: Partial<BudgetLi
         <Field label="Covers" help="A week line only counts transactions in that week">
           <select className="input" value={week ?? ''} onChange={(e) => setWeek(e.target.value ? Number(e.target.value) : undefined)}>
             <option value="">The whole month</option>
-            {[1, 2, 3, 4, 5].map((w) => (
-              <option key={w} value={w}>
-                Week {w} (days {1 + 7 * (w - 1)}–{w === 5 ? 31 : 7 * w})
-              </option>
-            ))}
+            {Array.from({ length: period(m, initial.month!).weeks }, (_, i) => i + 1).map((w) => {
+              const r = weekRange(m, initial.month!, w);
+              return (
+                <option key={w} value={w}>
+                  Week {w} ({fmtDate(r.start)} – {fmtDate(r.end)})
+                </option>
+              );
+            })}
           </select>
         </Field>
         <Field label="Baseline">
@@ -521,7 +575,8 @@ function FragmentRow({ head, children }: { head?: string; children: React.ReactN
 function SpreadForm({ m, year, categoryId, onClose }: { m: Model; year: number; categoryId: string; onClose: () => void }) {
   const c = m.categoryById.get(categoryId)!;
   const [amount, setAmount] = useState(0);
-  const [fromMonth, setFromMonth] = useState(Math.max(1, year === Number(currentMonth().slice(0, 4)) ? Number(currentMonth().slice(5, 7)) : 1));
+  const cbm = currentBudgetMonth(m);
+  const [fromMonth, setFromMonth] = useState(Math.max(1, year === Number(cbm.slice(0, 4)) ? Number(cbm.slice(5, 7)) : 1));
   const months = Array.from({ length: 12 - fromMonth + 1 }, (_, i) => `${year}-${String(fromMonth + i).padStart(2, '0')}`);
   const per = months.length ? Math.round(amount / months.length) : 0;
   return (
@@ -564,6 +619,74 @@ function SpreadForm({ m, year, categoryId, onClose }: { m: Model; year: number; 
       </div>
       <p className="muted small" style={{ marginTop: 12 }}>
         Each month from {MONTHS[fromMonth - 1]} gets <Money v={per} />. Months that already have a line for this category have their estimate replaced.
+      </p>
+    </Modal>
+  );
+}
+
+/** Set the first and last day of a budget month. The next month starts the day after this one ends. */
+function PeriodForm({ m, month, onClose }: { m: Model; month: string; onClose: () => void }) {
+  const toast = useToast();
+  const cur = period(m, month);
+  const [start, setStart] = useState(cur.start);
+  const [end, setEnd] = useState(cur.end);
+  const days = daysBetween(start, end) + 1;
+  const valid = start && end && days >= 7 && days <= 49;
+  const next = shiftMonth(month, 1);
+  const prev = shiftMonth(month, -1);
+  const plan = (id: string) => m.monthPlans.find((p) => p.id === id) ?? { id, updatedAt: '' };
+  return (
+    <Modal
+      title={`Dates of ${monthLabel(month)}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button
+            className="btn ghost"
+            onClick={async () => {
+              await commit([{ table: 'monthPlans', put: { ...plan(month), startDate: undefined } }, { table: 'monthPlans', put: { ...plan(next), startDate: undefined } }], 'Reset month dates');
+              toast('Dates follow the default rule again');
+              onClose();
+            }}
+          >
+            Use default dates
+          </button>
+          <span className="spacer" />
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button
+            className="btn primary"
+            disabled={!valid}
+            onClick={async () => {
+              await commit(
+                [
+                  { table: 'monthPlans', put: { ...plan(month), startDate: start } },
+                  { table: 'monthPlans', put: { ...plan(next), startDate: addDays(end, 1) } }
+                ],
+                'Set month dates'
+              );
+              toast(`${monthLabel(month)}: ${fmtDate(start)} – ${fmtDate(end, true)}`);
+              onClose();
+            }}
+          >
+            Save dates
+          </button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <Field label="First day">
+          <input className="input" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+        </Field>
+        <Field label="Last day">
+          <input className="input" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+        </Field>
+      </div>
+      <p className="small muted" style={{ marginTop: 12 }}>
+        {valid ? `${days} days${days % 7 === 0 ? ` — ${days / 7} whole weeks` : ' — not whole weeks'}. ` : 'A budget month needs at least 7 days. '}
+        {monthLabel(prev)} now ends on {fmtDate(addDays(start, -1), true)} and {monthLabel(next)} starts on {fmtDate(addDays(end, 1), true)}. Transactions move to the budget month their date falls in.
+      </p>
+      <p className="small muted" style={{ marginTop: 8 }}>
+        Default for months you have not set: {periodRule(m) === 'weeks' ? `whole weeks, starting on the Monday nearest the 1st (${fmtDate(ruleStart(month, 'weeks'), true)} for this month)` : 'calendar months'}. Change it under Settings → Household.
       </p>
     </Modal>
   );

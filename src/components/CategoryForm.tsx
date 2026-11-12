@@ -98,6 +98,12 @@ export function CategoryForm({ initial, onClose, onSaved, defaultGroupCode }: { 
             <option value="variable">Variable</option>
           </select>
         </Field>
+        <Field label="Active until" help="Optional last day. After it you can’t book on this category and it drops out of later budget months.">
+          <div className="row">
+            <input className="input" type="date" value={c.activeUntil ?? ''} onChange={(e) => setC({ ...c, activeUntil: e.target.value || undefined })} />
+            {c.activeUntil ? <button type="button" className="btn sm ghost" onClick={() => setC({ ...c, activeUntil: undefined })}>Clear</button> : null}
+          </div>
+        </Field>
         <Field label="Rollover">
           <select className="input" value={c.rollover ?? 'none'} onChange={(e) => setC({ ...c, rollover: e.target.value as Rollover })}>
             <option value="none">None — each month starts fresh</option>

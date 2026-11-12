@@ -7,7 +7,10 @@ import { balanceHistory, cashFlow, spendingByCategory } from '../lib/calc/report
 import { upcoming, draftFor } from '../lib/calc/recurring';
 import { useTxEditor } from '../App';
 import { useDrill, DrillMoney } from '../components/DrillDown';
-import { addDays, currentMonth, fmtDate, monthLabel, shiftMonth, today, sum, MONTHS } from '../lib/util';
+import { earmarkHints } from '../lib/calc/earmark';
+import { Link as RLink } from 'react-router-dom';
+import { addDays, fmtDate, monthLabel, shiftMonth, today, sum, MONTHS, daysBetween } from '../lib/util';
+import { currentBudgetMonth, period as budgetPeriod } from '../lib/calc/period';
 import { Runway } from '../components/Runway';
 import { CashFlowChart, HBars, TrendChart, SERIES } from '../components/charts';
 import { Icon, Money, Seg, useToast } from '../components/ui';
@@ -20,7 +23,9 @@ export default function Dashboard() {
   const toast = useToast();
   const [period, setPeriod] = useState<Period>('6');
   const [accountFilter, setAccountFilter] = useState<string>('all');
-  const month = currentMonth();
+  const month = currentBudgetMonth(m);
+  const per = budgetPeriod(m, month);
+  const flagged = useMemo(() => earmarkHints(m).size, [m]);
   const mb = useMemo(() => computeMonth(m, month), [m, month]);
   const from = period === 'ytd' ? `${month.slice(0, 4)}-01` : shiftMonth(month, -(Number(period) - 1));
   const accountIds = accountFilter === 'all' ? undefined : accountFilter === 'everyday' ? m.accounts.filter(isSpendable).map((a) => a.id) : [accountFilter];
@@ -46,7 +51,7 @@ export default function Dashboard() {
         <div>
           <h1>{monthLabel(month)}</h1>
           <p className="sub">
-            Day {Number(today().slice(8, 10))} of the month · {mb.lines.length ? `${mb.lines.filter((l) => l.line.closed).length} of ${mb.lines.length} budget lines closed` : 'no budget for this month yet'}
+            Day {daysBetween(per.start, today()) + 1} of {per.days} ({fmtDate(per.start)} – {fmtDate(per.end)}) · {mb.lines.length ? `${mb.lines.filter((l) => l.line.closed).length} of ${mb.lines.length} budget lines closed` : 'no budget for this month yet'}
           </p>
         </div>
         <div className="actions">
@@ -63,6 +68,11 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {flagged ? (
+        <div className="notice" style={{ marginBottom: 'var(--s4)' }}>
+          {flagged} transaction{flagged === 1 ? '' : 's'} may belong to next month’s budget (e.g. the salary advance). <RLink to="/transactions" state={{ type: 'earmark' }}>Check them</RLink>
+        </div>
+      ) : null}
       <Runway
         r={mb.runway}
         title="Free money at the end of the month"

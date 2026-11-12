@@ -2,7 +2,8 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import { useModel } from '../lib/useModel';
 import { isInternal, kindOf, lines, type Line, type Model } from '../lib/calc/model';
 import type { ID } from '../lib/types';
-import { fmtDate, monthEnd, monthLabel, sum } from '../lib/util';
+import { fmtDate, monthLabel, sum } from '../lib/util';
+import { weekRange } from '../lib/calc/period';
 import { Modal, Money } from './ui';
 import { txCategoryText } from './TxTable';
 import { useTxEditor } from '../App';
@@ -69,7 +70,7 @@ export function DrillDownModal({ f, onClose }: { f: DrillFilter; onClose: () => 
         <div className="grow">
           <div className="muted small">
             {period}
-            {f.week ? ` · week ${f.week} (days ${1 + 7 * (f.week - 1)}–${f.week === 5 ? Number(monthEnd(f.from).slice(8)) : 7 * f.week})` : ''} · {shown.length} transaction{shown.length === 1 ? '' : 's'}
+            {f.week ? ` · week ${f.week} (${fmtDate(weekRange(m, f.from, f.week).start)} – ${fmtDate(weekRange(m, f.from, f.week).end)})` : ''} · {shown.length} transaction{shown.length === 1 ? '' : 's'}
           </div>
           <div style={{ fontFamily: 'var(--display)', fontWeight: 700, fontSize: 22 }}>
             <Money v={total} tone />

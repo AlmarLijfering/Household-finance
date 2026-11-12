@@ -5,6 +5,7 @@ import { Icon, Modal, useToast } from '../components/ui';
 import { CategoryForm } from '../components/CategoryForm';
 import { scopeLabel, ACCOUNT_TYPE_LABEL } from '../lib/calc/model';
 import type { AccountType, Category } from '../lib/types';
+import { fmtDate, today } from '../lib/util';
 
 /** Scopes derived from where each category was actually used. */
 function suggestScopes(m: ReturnType<typeof useModel>) {
@@ -77,6 +78,9 @@ export default function Categories() {
                     <div className="title">{c.name}</div>
                     <div className="meta">{[c.section, scopeLabel(m, c), c.rollover && c.rollover !== 'none' ? 'rollover' : '', c.archived ? 'archived' : ''].filter(Boolean).join(' · ')}</div>
                   </div>
+                  {c.activeUntil ? (
+                    <span className={c.activeUntil < today() ? 'badge' : 'badge warn'}>{c.activeUntil < today() ? `Ended ${fmtDate(c.activeUntil, true)}` : `Until ${fmtDate(c.activeUntil, true)}`}</span>
+                  ) : null}
                   <span className="muted small desk-only">{counts.get(c.id) ?? 0} transactions</span>
                   <Icon name="chev" size={16} />
                 </div>

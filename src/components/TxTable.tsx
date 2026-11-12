@@ -2,7 +2,10 @@ import { useState } from 'react';
 import type { Transaction } from '../lib/types';
 import type { Model } from '../lib/calc/model';
 import { categoryLabel } from '../lib/calc/model';
-import { cx, fmtDate } from '../lib/util';
+import { cx, fmtDate, MONTHS, monthLabel } from '../lib/util';
+import { useMemo } from 'react';
+import { earmarkHints } from '../lib/calc/earmark';
+import { BulkEdit } from './BulkEdit';
 import { Money } from './ui';
 import { useTxEditor } from '../App';
 import { put } from '../lib/db';
@@ -34,35 +37,76 @@ export function StatusToggle({ t }: { t: Transaction }) {
   );
 }
 
-export function TxTable({ m, txs, running, showAccount, selectable, selected, onToggle, pageSize = 150 }: { m: Model; txs: Transaction[]; running?: Map<string, number>; showAccount?: boolean; selectable?: boolean; selected?: Set<string>; onToggle?: (t: Transaction) => void; pageSize?: number }) {
+export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = true }: { m: Model; txs: Transaction[]; running?: Map<string, number>; showAccount?: boolean; pageSize?: number; bulk?: boolean }) {
   const open = useTxEditor();
   const [limit, setLimit] = useState(pageSize);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState(false);
+  const hints = useMemo(() => earmarkHints(m), [m]);
   const rows = txs.slice(0, limit);
+  // keep only selections that are still in the (filtered) list
+  const visibleSel = useMemo(() => new Set(txs.filter((t) => sel.has(t.id)).map((t) => t.id)), [txs, sel]);
   if (!txs.length) return <p className="muted" style={{ padding: 16 }}>No transactions match.</p>;
+  const allOn = visibleSel.size === txs.length;
+  const toggle = (id: string) =>
+    setSel((x) => {
+      const n = new Set(x);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
   return (
     <>
+      {bulk && visibleSel.size ? (
+        <div className="bulk-bar">
+          <b>{visibleSel.size} selected</b>
+          {!allOn ? (
+            <button className="btn sm ghost" onClick={() => setSel(new Set(txs.map((t) => t.id)))}>
+              Select all {txs.length}
+            </button>
+          ) : null}
+          <span className="spacer" />
+          <button className="btn sm primary" onClick={() => setEditing(true)}>
+            Edit selected
+          </button>
+          <button className="btn sm ghost" onClick={() => setSel(new Set())}>
+            Clear
+          </button>
+        </div>
+      ) : null}
       <div className="table-wrap">
         <table className="t">
           <thead>
             <tr>
-              {selectable ? <th aria-label="Cleared" /> : null}
+              {bulk ? (
+                <th style={{ width: 34 }}>
+                  <input
+                    type="checkbox"
+                    aria-label={allOn ? 'Clear selection' : 'Select all shown'}
+                    checked={allOn}
+                    ref={(el) => {
+                      if (el) el.indeterminate = visibleSel.size > 0 && !allOn;
+                    }}
+                    onChange={() => setSel(allOn ? new Set() : new Set(txs.map((t) => t.id)))}
+                    className="sel-box"
+                  />
+                </th>
+              ) : null}
               <th>Date</th>
               {showAccount ? <th>Account</th> : null}
               <th>Payee</th>
               <th>Category</th>
               <th className="r">Amount</th>
               {running ? <th className="r desk-only">Balance</th> : null}
-              {!selectable ? <th aria-label="Status" /> : null}
             </tr>
           </thead>
           <tbody>
             {rows.map((t) => {
               const acc = m.accountById.get(t.accountId);
               return (
-                <tr key={t.id} className={cx('click', selected?.has(t.id) && 'sel')} onClick={() => (selectable && onToggle ? onToggle(t) : open({ id: t.id }))}>
-                  {selectable ? (
-                    <td>
-                      <input type="checkbox" aria-label="Cleared" checked={selected?.has(t.id) ?? false} readOnly style={{ width: 18, height: 18, accentColor: 'var(--moss)' }} />
+                <tr key={t.id} className={cx('click', visibleSel.has(t.id) && 'sel')} onClick={() => open({ id: t.id })}>
+                  {bulk ? (
+                    <td onClick={(e) => { e.stopPropagation(); toggle(t.id); }}>
+                      <input type="checkbox" aria-label="Select" checked={visibleSel.has(t.id)} onChange={() => toggle(t.id)} onClick={(e) => e.stopPropagation()} className="sel-box" />
                     </td>
                   ) : null}
                   <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.date, true)}</td>
@@ -71,18 +115,17 @@ export function TxTable({ m, txs, running, showAccount, selectable, selected, on
                     <div style={{ fontWeight: 550 }}>{t.payee || <span className="muted">—</span>}</div>
                     {t.memo ? <div className="small muted">{t.memo}</div> : null}
                   </td>
-                  <td className="small">{txCategoryText(m, t)}</td>
+                  <td className="small">
+                    {txCategoryText(m, t)}
+                    {t.budgetMonth ? <span className="badge info" style={{ marginLeft: 6 }} title="Counts for another budget month than its date">for {MONTHS[Number(t.budgetMonth.slice(5, 7)) - 1]}</span> : null}
+                    {hints.get(t.id) ? <EarmarkFlag t={t} suggested={hints.get(t.id)!.suggested} reason={hints.get(t.id)!.reason} /> : null}
+                  </td>
                   <td className="r">
                     <Money v={t.amount} tone={t.amount > 0} cur={acc?.currency} />
                   </td>
                   {running ? (
                     <td className="r muted desk-only">
                       <Money v={running.get(t.id) ?? 0} />
-                    </td>
-                  ) : null}
-                  {!selectable ? (
-                    <td>
-                      <StatusToggle t={t} />
                     </td>
                   ) : null}
                 </tr>
@@ -98,6 +141,7 @@ export function TxTable({ m, txs, running, showAccount, selectable, selected, on
           </button>
         </div>
       ) : null}
+      {editing ? <BulkEdit ids={[...visibleSel]} onClose={() => setEditing(false)} onDone={() => setSel(new Set())} /> : null}
     </>
   );
 }
@@ -112,5 +156,20 @@ export function matchesSearch(m: Model, t: Transaction, q: string): boolean {
     txCategoryText(m, t).toLowerCase().includes(s) ||
     amt.includes(s.replace(',', '.')) ||
     (m.categoryById.get(t.categoryId ?? '')?.code ?? '').toLowerCase() === s
+  );
+}
+
+/** Warning on a transaction that probably belongs to the next budget month, with one-click fixes. */
+export function EarmarkFlag({ t, suggested, reason }: { t: Transaction; suggested: string; reason: string }) {
+  return (
+    <span className="earmark" onClick={(e) => e.stopPropagation()} title={reason}>
+      <span className="badge warn">Not earmarked?</span>
+      <button type="button" className="btn sm" onClick={() => put('transactions', { ...t, budgetMonth: suggested, monthConfirmed: undefined }, 'Earmark for next month')}>
+        Count for {monthLabel(suggested).split(' ')[0]}
+      </button>
+      <button type="button" className="btn sm ghost" onClick={() => put('transactions', { ...t, monthConfirmed: true }, 'Confirm budget month')}>
+        It’s right
+      </button>
+    </span>
   );
 }

@@ -1,6 +1,7 @@
 import type { BudgetLine, GroupKind, ID, MonthKey } from '../types';
-import { lines, kindOf, totalBase, isSpendable, type Model, type Line } from './model';
-import { currentMonth, monthEnd, shiftMonth, sum } from '../util';
+import { lines, kindOf, isSpendable, monthBalance, bookedInMonth, isEverydayCategory, categoryActiveOn, type Model, type Line } from './model';
+import { shiftMonth, sum } from '../util';
+import { currentBudgetMonth, periodStart } from './period';
 
 export interface LineResult {
   line: BudgetLine;
@@ -27,23 +28,43 @@ export interface MonthBudget {
   lines: LineResult[];
   sections: Array<{ name: string; kind: GroupKind; groupCode: string; lines: LineResult[] }>;
   groups: GroupResult[];
-  unbudgeted: Array<{ categoryId: ID; actual: number; kind: GroupKind }>;
+  /** spending without a budget line; `everyday` = the category is used on current accounts or cash */
+  unbudgeted: Array<{ categoryId: ID; actual: number; kind: GroupKind; everyday: boolean }>;
   totals: { income: GroupResult; costs: GroupResult };
-  /** "In current accounts and cash" row: planned start figures and the balance so far. */
-  start: { baseline: number; estimate: number; balance: number };
+  /** "In current accounts and cash" row: planned start figures and the money the month starts with. */
+  start: MonthStart;
   runway: Runway;
 }
 
-/**
- * Money in current accounts and cash as far as this month has happened:
- * a month that has not started yet has nothing in it, the current month uses today's
- * balance, a past month its month-end balance.
- */
-export function availableFor(m: Model, month: MonthKey): number {
-  const now = currentMonth();
-  if (month > now) return 0;
-  return month === now ? totalBase(m, isSpendable) : totalBase(m, isSpendable, monthEnd(month));
+export interface MonthStart {
+  baseline: number;
+  estimate: number;
+  /** what the month has to work with in current accounts and cash */
+  balance: number;
+  when: 'past' | 'current' | 'next' | 'later';
+  /** next month only: the current month's projected free money, carried over */
+  carry: number;
+  /** next month only: money already booked for it (advance received, rent paid early…) */
+  booked: number;
 }
+
+/**
+ * Money in current accounts and cash for a budget month.
+ * - past and current months: everything booked for this month or earlier (never later months)
+ * - next month: what this month is projected to leave over, plus what is already booked for it
+ * - two or more months ahead: nothing yet
+ */
+export function monthStart(m: Model, month: MonthKey): Pick<MonthStart, 'balance' | 'when' | 'carry' | 'booked'> {
+  const now = currentBudgetMonth(m);
+  if (month <= now) return { balance: monthBalance(m, isSpendable, month), when: month === now ? 'current' : 'past', carry: 0, booked: 0 };
+  if (month === shiftMonth(now, 1)) {
+    const carry = computeMonth(m, now).runway.free;
+    const booked = bookedInMonth(m, isSpendable, month);
+    return { balance: carry + booked, when: 'next', carry, booked };
+  }
+  return { balance: 0, when: 'later', carry: 0, booked: 0 };
+}
+export const availableFor = (m: Model, month: MonthKey) => monthStart(m, month).balance;
 
 export interface Runway {
   available: number; // current + cash account balances now
@@ -89,7 +110,11 @@ export function computeMonth(m: Model, month: MonthKey, depth = 0): MonthBudget 
 
 function computeMonthRaw(m: Model, month: MonthKey, depth: number): MonthBudget {
   const idx = actualsIndex(m, month);
-  const monthLines = m.budgetLines.filter((b) => b.month === month).sort((a, b) => a.sort - b.sort);
+  // a category that ended before this budget month starts is left out, even if a line exists
+  const start0 = periodStart(m, month);
+  const monthLines = m.budgetLines
+    .filter((b) => b.month === month && categoryActiveOn(m.categoryById.get(b.categoryId), start0))
+    .sort((a, b) => a.sort - b.sort);
   const byCatLines = new Map<ID, BudgetLine[]>();
   for (const b of monthLines) byCatLines.set(b.categoryId, [...(byCatLines.get(b.categoryId) ?? []), b]);
 
@@ -126,7 +151,8 @@ function computeMonthRaw(m: Model, month: MonthKey, depth: number): MonthBudget 
     const kind = kindOf(m, catId);
     if (!kind || kind === 'transfer' || kind === 'opening') continue;
     const actual = signFor(kind) * sum(ls.map((l) => l.amount));
-    if (actual !== 0) unbudgeted.push({ categoryId: catId, actual, kind });
+    const cat = m.categoryById.get(catId);
+    if (actual !== 0) unbudgeted.push({ categoryId: catId, actual, kind, everyday: cat ? isEverydayCategory(m, cat) : true });
   }
 
   // Sections in display order
@@ -168,11 +194,10 @@ function computeMonthRaw(m: Model, month: MonthKey, depth: number): MonthBudget 
   const income = agg(groups.filter((g) => g.kind === 'income'), 'Income', 'income');
   const costs = agg(groups.filter((g) => g.kind !== 'income'), 'Costs', 'expense');
 
-  const available = availableFor(m, month);
   const plan = m.monthPlans.find((p) => p.id === month);
-  // A month that has not started has no balance yet; your estimate of the starting money stands in for it.
-  const startMoney = month > currentMonth() ? plan?.startEstimate ?? 0 : available;
-  const start = { baseline: plan?.startBaseline ?? 0, estimate: plan?.startEstimate ?? 0, balance: startMoney };
+  const ms = monthStart(m, month);
+  const startMoney = ms.balance;
+  const start: MonthStart = { baseline: plan?.startBaseline ?? 0, estimate: plan?.startEstimate ?? 0, ...ms };
   const runway: Runway = {
     available: startMoney,
     incomeToCome: income.remaining,
@@ -202,8 +227,9 @@ function carryFor(m: Model, line: BudgetLine, month: MonthKey, depth: number): n
 
 /** Copy a month's lines into another month (baseline = previous estimate, nothing closed). */
 export function linesForCopy(m: Model, from: MonthKey, to: MonthKey, newId: () => string): BudgetLine[] {
+  const startTo = periodStart(m, to);
   return m.budgetLines
-    .filter((b) => b.month === from)
+    .filter((b) => b.month === from && categoryActiveOn(m.categoryById.get(b.categoryId), startTo))
     .map((b) => ({ ...b, id: newId(), month: to, baseline: b.baseline, estimate: b.baseline, closed: false, updatedAt: '' }));
 }
 

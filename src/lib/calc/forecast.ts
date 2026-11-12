@@ -1,8 +1,9 @@
 import type { ID, MonthKey, Scenario } from '../types';
 import { computeMonth } from './budget';
-import { isReserve, isSpendable, kindOf, toBase, totalBase, type Model } from './model';
+import { isReserve, isSpendable, kindOf, toBase, monthBalance, categoryActiveOn, type Model } from './model';
 import { occurrences, signedAmount } from './recurring';
-import { currentMonth, monthEnd, monthOf, shiftMonth, sum, today } from '../util';
+import { shiftMonth, sum, today } from '../util';
+import { currentBudgetMonth, monthOfDate, periodEnd, periodStart } from './period';
 
 export interface ForecastPoint {
   month: MonthKey;
@@ -34,8 +35,9 @@ export interface ForecastOptions {
  *   their due date.
  */
 export function forecast(m: Model, opts: ForecastOptions, scenario: Scenario | null): ForecastSeries {
-  const start = currentMonth();
-  const startBal = totalBase(m, opts.scope === 'spendable' ? isSpendable : (a) => isSpendable(a) || isReserve(a));
+  const start = currentBudgetMonth(m);
+  // money booked for later months (e.g. an advance meant for next month) is counted in that month, not in the start
+  const startBal = monthBalance(m, opts.scope === 'spendable' ? isSpendable : (a) => isSpendable(a) || isReserve(a), start);
   const budgetMonths = Array.from(new Set(m.budgetLines.map((b) => b.month))).sort();
   const incomeF = 1 + (scenario?.incomeChangePct ?? 0) / 100;
   const spendF = 1 + (scenario?.spendChangePct ?? 0) / 100;
@@ -57,6 +59,8 @@ export function forecast(m: Model, opts: ForecastOptions, scenario: Scenario | n
     if (template) {
       const mb = computeMonth(m, template);
       for (const r of mb.lines) {
+        // a repeated template month must not bring back a category that has ended by now
+        if (!categoryActiveOn(m.categoryById.get(r.line.categoryId), periodStart(m, month))) continue;
         budgeted.add(r.line.categoryId);
         const amount = i === 0 && template === month ? r.remaining : r.line.closed && template === month ? 0 : r.available;
         if (r.kind === 'income') income += amount;
@@ -66,12 +70,12 @@ export function forecast(m: Model, opts: ForecastOptions, scenario: Scenario | n
       }
     }
     // Recurring items not covered by the budget
-    const from = i === 0 ? today() : `${month}-01`;
+    const from = i === 0 ? today() : periodStart(m, month);
     for (const rec of m.recurring) {
       if (!rec.active) continue;
       if (rec.scenarioId && rec.scenarioId !== scenario?.id) continue;
       if (rec.categoryId && budgeted.has(rec.categoryId) && !rec.scenarioId) continue;
-      const occ = occurrences(rec, from, monthEnd(month));
+      const occ = occurrences(rec, from, periodEnd(m, month));
       if (!occ.length) continue;
       const acc = m.accountById.get(rec.accountId);
       for (const d of occ) {
@@ -89,7 +93,7 @@ export function forecast(m: Model, opts: ForecastOptions, scenario: Scenario | n
     }
     // Planned entries (imported future plans, one-off scenario items)
     for (const p of m.planned) {
-      if (monthOf(p.date) !== month) continue;
+      if (monthOfDate(m, p.date) !== month) continue;
       if (i === 0 && p.date < today()) continue;
       if (p.scenarioId && p.scenarioId !== scenario?.id) continue;
       if (!inScope(p.accountId)) continue;
@@ -100,7 +104,7 @@ export function forecast(m: Model, opts: ForecastOptions, scenario: Scenario | n
     // Yearly-fund items due this month are paid out of reserves
     if (opts.scope === 'all') {
       for (const y of m.yearlyItems) {
-        if (y.paid || monthOf(y.dueDate) !== month) continue;
+        if (y.paid || monthOfDate(m, y.dueDate) !== month) continue;
         if (i === 0 && y.dueDate < today()) continue;
         if (y.categoryId && budgeted.has(y.categoryId)) continue;
         costs += Math.max(0, y.estimated - (y.actualOverride ?? 0));

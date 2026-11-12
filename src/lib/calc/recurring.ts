@@ -108,3 +108,25 @@ export function draftFor(r: Recurring, todayIso: ISODate) {
     memo: r.name
   };
 }
+
+const normName = (s: string | undefined) => (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export function isRecurringActive(r: Recurring, todayIso: ISODate) {
+  return r.active && (!r.endDate || r.endDate >= todayIso);
+}
+
+/**
+ * Past transactions of a bill or income: ones recorded from it, plus any with the same
+ * payee (or the item's name when no payee is set). For transfers only the outgoing side.
+ */
+export function historyFor(txs: Transaction[], r: Recurring): Transaction[] {
+  const key = normName(r.payee || r.name);
+  return txs
+    .filter((t) => {
+      if (t.recurringId === r.id) return true;
+      if (!key || normName(t.payee) !== key) return false;
+      if (t.transferId && t.amount > 0) return false;
+      return true;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+}

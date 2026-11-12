@@ -5,6 +5,7 @@ import { balancesByAccount, isReserve, isSpendable, toBase } from '../lib/calc/m
 import { Field, Icon, Modal, Money, AmountInput, useToast } from '../components/ui';
 import { put } from '../lib/db';
 import type { Account, AccountType } from '../lib/types';
+import { BankBalanceForm, bankDifference } from './Register';
 import { today, uid, sum } from '../lib/util';
 
 export function AccountForm({ initial, onClose }: { initial?: Account; onClose: () => void }) {
@@ -94,6 +95,7 @@ export default function Accounts() {
   const nav = useNavigate();
   const [edit, setEdit] = useState<Account | 'new' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [bankFor, setBankFor] = useState<Account | null>(null);
   const bal = balancesByAccount(m);
   const base = (a: Account) => toBase(m, bal.get(a.id) ?? 0, a.currency, today());
   const groups: Array<[string, (a: Account) => boolean]> = [
@@ -101,7 +103,7 @@ export default function Accounts() {
     ['Reserves & savings', isReserve]
   ];
   const visible = m.accounts.filter((a) => showArchived || !a.archived);
-  const uncleared = (id: string) => m.transactions.filter((t) => t.accountId === id && t.status === 'uncleared').length;
+
   return (
     <div>
       <div className="page-head">
@@ -131,7 +133,7 @@ export default function Accounts() {
             </div>
             <div className="list">
               {list.map((a) => {
-                const stmtDiff = a.statementBalance != null ? (bal.get(a.id) ?? 0) - a.statementBalance : null;
+                const stmtDiff = bankDifference(m, a);
                 return (
                   <div key={a.id} className="list-row click" onClick={() => nav(`/accounts/${a.id}`)}>
                     <div className="grow">
@@ -140,10 +142,10 @@ export default function Accounts() {
                       </div>
                       <div className="meta">
                         {a.code} · {a.type === 'current' ? 'Current account' : a.type === 'cash' ? 'Cash' : a.type === 'reserve' ? a.purpose || 'Reserve fund' : 'Savings'}
-                        {uncleared(a.id) ? ` · ${uncleared(a.id)} not yet cleared` : ''}
+                        {a.statementDate ? ` · bank balance of ${a.statementDate.slice(8, 10)}.${a.statementDate.slice(5, 7)}` : ''}
                       </div>
                     </div>
-                    {stmtDiff != null && stmtDiff !== 0 ? <span className="badge warn desk-only" title="Differs from the last bank balance you entered">Bank differs by <Money v={stmtDiff} /></span> : null}
+                    {stmtDiff != null && stmtDiff !== 0 ? <span className="badge warn" title="The bank balance you entered differs from the app">Bank differs by <Money v={-stmtDiff} sign /></span> : stmtDiff === 0 ? <span className="badge good desk-only">Matches bank</span> : null}
                     <div style={{ textAlign: 'right' }}>
                       <Money v={bal.get(a.id) ?? 0} cur={a.currency} className="title" />
                       {a.currency !== m.settings.baseCurrency ? (
@@ -152,6 +154,17 @@ export default function Accounts() {
                         </div>
                       ) : null}
                     </div>
+                    <button
+                      className="icon-btn"
+                      aria-label={`Enter bank balance for ${a.name}`}
+                      title="Enter bank balance"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setBankFor(a);
+                      }}
+                    >
+                      <Icon name="scale" size={18} />
+                    </button>
                     <button
                       className="icon-btn"
                       aria-label={`Edit ${a.name}`}
@@ -172,6 +185,7 @@ export default function Accounts() {
       <p className="small muted section">
         Stocks, investment accounts and portfolios are not tracked here. <Link to="/import">Import your workbook</Link> to bring in history.
       </p>
+      {bankFor ? <BankBalanceForm account={bankFor} onClose={() => setBankFor(null)} /> : null}
       {edit ? <AccountForm initial={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} /> : null}
     </div>
   );

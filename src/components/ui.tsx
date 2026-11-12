@@ -104,7 +104,8 @@ export function Field({ label, help, children, className }: { label: string; hel
 }
 
 /** Amount input that keeps what the user typed until blur. Value in minor units. */
-export function AmountInput({ value, onChange, className, inline, autoFocus, placeholder, ariaLabel }: { value: number; onChange: (v: number) => void; className?: string; inline?: boolean; autoFocus?: boolean; placeholder?: string; ariaLabel?: string }) {
+export function AmountInput({ value, onChange, className, inline, autoFocus, placeholder, ariaLabel, live: liveProp }: { value: number; onChange: (v: number) => void; className?: string; inline?: boolean; autoFocus?: boolean; placeholder?: string; ariaLabel?: string; live?: boolean }) {
+  const live = liveProp ?? !inline; // forms update as you type; inline table cells save when you leave them
   const show = (v: number) => (v ? fmtMoney(v) : '');
   const [text, setText] = useState(show(value));
   const [focus, setFocus] = useState(false);
@@ -126,7 +127,11 @@ export function AmountInput({ value, onChange, className, inline, autoFocus, pla
         const el = e.currentTarget;
         requestAnimationFrame(() => el.select());
       }}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        setText(e.target.value);
+        // in forms, report every keystroke so Save buttons enable at once; inline cells save on blur
+        if (live) onChange(parseAmount(e.target.value) ?? 0);
+      }}
       onBlur={() => {
         setFocus(false);
         const v = parseAmount(text);

@@ -1,6 +1,7 @@
 import type { ID, MonthKey } from '../types';
 import { balancesByAccount, isInternal, isReserve, isSpendable, kindOf, lines, toBase, type Model } from './model';
-import { monthEnd, shiftMonth, sum } from '../util';
+import { shiftMonth, sum } from '../util';
+import { periodEnd } from './period';
 
 export interface CashFlowRow {
   month: MonthKey;
@@ -87,7 +88,7 @@ export function incomeByCategory(m: Model, f: ReportFilter) {
 export function balanceHistory(m: Model, f: ReportFilter) {
   const months = monthsBetween(f.from, f.to);
   return months.map((month) => {
-    const end = monthEnd(month);
+    const end = periodEnd(m, month);
     const bal = balancesByAccount(m, end);
     const perAccount: Record<ID, number> = {};
     let spendable = 0,

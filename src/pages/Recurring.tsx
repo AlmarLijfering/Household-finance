@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useModel } from '../lib/useModel';
-import { monthlyEquivalent, occurrences, postRecurring, signedAmount, upcoming, draftFor } from '../lib/calc/recurring';
+import { monthlyEquivalent, occurrences, postRecurring, signedAmount, upcoming, draftFor, historyFor, isRecurringActive } from '../lib/calc/recurring';
 import { useTxEditor } from '../App';
-import { commit, put, del } from '../lib/db';
+import { put, del } from '../lib/db';
 import { AmountInput, Field, Icon, Modal, Money, Seg, useToast } from '../components/ui';
 import { AccountSelect, CategorySelect } from '../components/TxEditor';
-import { addDays, addMonths, fmtDate, today, uid, sum, MONTHS } from '../lib/util';
+import { addDays, addMonths, fmtDate, today, uid, sum, MONTHS, cx } from '../lib/util';
 import type { Frequency, Recurring, RecurringKind } from '../lib/types';
 import type { Model } from '../lib/calc/model';
 
@@ -16,28 +16,70 @@ export default function RecurringPage() {
   const m = useModel();
   const toast = useToast();
   const [edit, setEdit] = useState<Recurring | 'new' | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
   const [tab, setTab] = useState<'list' | 'calendar'>('list');
-  const active = m.recurring.filter((r) => !r.scenarioId);
-  const subs = active.filter((r) => r.kind === 'subscription' && r.active);
-  const monthlyOut = sum(active.filter((r) => r.active && r.kind !== 'income' && r.kind !== 'transfer').map(monthlyEquivalent));
-  const monthlyIn = sum(active.filter((r) => r.active && r.kind === 'income').map(monthlyEquivalent));
+  const all = m.recurring.filter((r) => !r.scenarioId);
+  const active = all.filter((r) => isRecurringActive(r, today()));
+  const inactive = all.filter((r) => !isRecurringActive(r, today()));
+  const subs = active.filter((r) => r.kind === 'subscription');
+  const monthlyOut = sum(active.filter((r) => r.kind !== 'income' && r.kind !== 'transfer').map(monthlyEquivalent));
+  const monthlyIn = sum(active.filter((r) => r.kind === 'income').map(monthlyEquivalent));
   const next30 = useMemo(() => upcoming(m, today(), addDays(today(), 30)), [m]);
+  const lastOf = useMemo(() => {
+    const map = new Map<string, { date: string; amount: number } | undefined>();
+    for (const r of all) {
+      const h = historyFor(m.transactions, r)[0];
+      map.set(r.id, h ? { date: h.date, amount: h.amount } : undefined);
+    }
+    return map;
+  }, [m]);
 
   const openTx = useTxEditor();
   // Opens an editable draft; the transaction is only created when it is saved.
-  const pay = (r: Recurring, _date: string) => openTx(draftFor(r, today()));
+  const pay = (r: Recurring) => openTx(draftFor(r, today()));
   async function skip(r: Recurring) {
     const { rec } = postRecurring(r, r.nextDate);
     await put('recurring', rec, `Skip ${r.name}`);
     toast(`Skipped — next ${fmtDate(rec.nextDate)}`);
   }
 
+  const row = (r: Recurring, isActive: boolean) => {
+    const last = lastOf.get(r.id);
+    const ended = r.endDate && r.endDate < today();
+    return (
+      <div className={cx('list-row click', !isActive && 'inactive-row')} key={r.id} onClick={() => setDetail(r.id)}>
+        <div className="grow">
+          <div className="title">
+            {r.name} {!isActive ? <span className="badge">{ended ? `Ended ${fmtDate(r.endDate!, true)}` : 'Paused'}</span> : null}
+          </div>
+          <div className="meta">
+            {KIND_LABEL[r.kind].replace(/s$/, '')} · every {r.interval > 1 ? `${r.interval} ` : ''}
+            {FREQ[r.frequency]}
+            {r.interval > 1 ? 's' : ''} · {m.accountById.get(r.accountId)?.name}
+            {r.toAccountId ? ` → ${m.accountById.get(r.toAccountId)?.name}` : ''}
+            {isActive ? ` · next ${fmtDate(r.nextDate, true)}` : ''}
+            {last ? ` · last ${fmtDate(last.date, true)}` : ' · no payments found'}
+          </div>
+        </div>
+        <Money v={signedAmount(r)} tone={r.kind === 'income'} />
+        {isActive ? (
+          <button className="btn sm" onClick={(e) => { e.stopPropagation(); pay(r); }}>
+            {r.kind === 'income' ? 'Received' : 'Paid'}
+          </button>
+        ) : (
+          <span className="btn sm ghost" aria-hidden="true" style={{ visibility: 'hidden' }}>Paid</span>
+        )}
+      </div>
+    );
+  };
+
+  const det = detail ? all.find((r) => r.id === detail) : undefined;
   return (
     <div>
       <div className="page-head">
         <div>
           <h1>Bills & income</h1>
-          <p className="sub">Recurring payments, subscriptions, salary and monthly transfers into your reserve funds.</p>
+          <p className="sub">Recurring payments, subscriptions, salary and monthly transfers into your reserve funds. Click one to see its past payments.</p>
         </div>
         <div className="actions">
           <Seg value={tab} onChange={setTab} options={[['list', 'List'], ['calendar', 'Next 30 days']]} />
@@ -81,7 +123,7 @@ export default function RecurringPage() {
               <Money v={u.amount} tone={u.amount > 0} />
               {u.date === u.rec.nextDate ? (
                 <>
-                  <button className="btn sm" onClick={() => pay(u.rec, u.date)}>{u.rec.kind === 'income' ? 'Received' : 'Paid'}</button>
+                  <button className="btn sm" onClick={() => pay(u.rec)}>{u.rec.kind === 'income' ? 'Received' : 'Paid'}</button>
                   <button className="btn sm ghost" onClick={() => skip(u.rec)}>Skip</button>
                 </>
               ) : null}
@@ -90,52 +132,134 @@ export default function RecurringPage() {
           {!next30.length ? <div className="list-row muted">Nothing scheduled in the next 30 days.</div> : null}
         </div>
       ) : (
-        (['income', 'bill', 'subscription', 'transfer'] as RecurringKind[]).map((k) => {
-          const list = active.filter((r) => r.kind === k);
-          if (!list.length) return null;
-          return (
-            <div className="section" key={k} style={{ marginTop: 'var(--s5)' }}>
+        <>
+          {(['income', 'bill', 'subscription', 'transfer'] as RecurringKind[]).map((k) => {
+            const list = active.filter((r) => r.kind === k);
+            if (!list.length) return null;
+            return (
+              <div className="section" key={k} style={{ marginTop: 'var(--s5)' }}>
+                <div className="section-head">
+                  <h2>{KIND_LABEL[k]}</h2>
+                  <span className="hint">
+                    <Money v={sum(list.map(monthlyEquivalent))} /> per month
+                  </span>
+                </div>
+                <div className="list">{list.map((r) => row(r, true))}</div>
+              </div>
+            );
+          })}
+          {inactive.length ? (
+            <div className="section" style={{ marginTop: 'var(--s6)' }}>
               <div className="section-head">
-                <h2>{KIND_LABEL[k]}</h2>
-                <span className="hint">
-                  <Money v={sum(list.filter((r) => r.active).map(monthlyEquivalent))} /> per month
-                </span>
+                <h2>Inactive</h2>
+                <span className="hint">Paused or ended — not due, but their past payments stay visible</span>
               </div>
-              <div className="list">
-                {list.map((r) => (
-                  <div className="list-row click" key={r.id} onClick={() => setEdit(r)} style={{ opacity: r.active ? 1 : 0.55 }}>
-                    <div className="grow">
-                      <div className="title">{r.name}</div>
-                      <div className="meta">
-                        Every {r.interval > 1 ? `${r.interval} ` : ''}
-                        {FREQ[r.frequency]}
-                        {r.interval > 1 ? 's' : ''} · {m.accountById.get(r.accountId)?.name}
-                        {r.toAccountId ? ` → ${m.accountById.get(r.toAccountId)?.name}` : ''}
-                        {r.active ? ` · next ${fmtDate(r.nextDate, true)}` : ' · paused'}
-                      </div>
-                    </div>
-                    <Money v={signedAmount(r)} tone={r.kind === 'income'} />
-                    {r.active ? (
-                      <button className="btn sm" onClick={(e) => { e.stopPropagation(); pay(r, r.nextDate); }}>
-                        {r.kind === 'income' ? 'Received' : 'Paid'}
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
+              <div className="list inactive-list">{inactive.map((r) => row(r, false))}</div>
             </div>
-          );
-        })
+          ) : null}
+        </>
       )}
-      {!active.length ? (
+      {!all.length ? (
         <div className="empty section">
           <h3>No recurring items yet</h3>
           <p>Add rent, utilities, subscriptions, salary and the monthly top-ups of your reserve funds. They show up on the overview before they are due and feed the forecast.</p>
           <button className="btn primary" onClick={() => setEdit('new')}>Add the first one</button>
         </div>
       ) : null}
+      {det ? <RecurringDetail m={m} r={det} onClose={() => setDetail(null)} onEdit={() => { setDetail(null); setEdit(det); }} onPay={() => { setDetail(null); pay(det); }} /> : null}
       {edit ? <RecurringForm m={m} initial={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} /> : null}
     </div>
+  );
+}
+
+/** Past payments (or income) of one recurring item, found by payee or because they were recorded from it. */
+function RecurringDetail({ m, r, onClose, onEdit, onPay }: { m: Model; r: Recurring; onClose: () => void; onEdit: () => void; onPay: () => void }) {
+  const openTx = useTxEditor();
+  const hist = useMemo(() => historyFor(m.transactions, r), [m, r]);
+  const isActive = isRecurringActive(r, today());
+  const year = today().slice(0, 4);
+  const thisYear = hist.filter((t) => t.date.startsWith(year));
+  const byYear = new Map<string, number>();
+  for (const t of hist) byYear.set(t.date.slice(0, 4), (byYear.get(t.date.slice(0, 4)) ?? 0) + t.amount);
+  const avg = hist.length ? Math.round(sum(hist.slice(0, 12).map((t) => t.amount)) / Math.min(12, hist.length)) : 0;
+  return (
+    <Modal
+      title={r.name}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button className="btn" onClick={onEdit}>
+            <Icon name="settings" size={16} /> Edit{!isActive ? ' or reactivate' : ''}
+          </button>
+          <span className="spacer" />
+          {isActive ? (
+            <button className="btn primary" onClick={onPay}>
+              {r.kind === 'income' ? 'Record income' : 'Record payment'} due {fmtDate(r.nextDate)}
+            </button>
+          ) : (
+            <span className="muted small">Inactive — nothing to pay</span>
+          )}
+        </>
+      }
+    >
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div>
+          <div className="k-label">Expected</div>
+          <div className="k-val"><Money v={signedAmount(r)} /></div>
+          <div className="small muted">every {r.interval > 1 ? `${r.interval} ` : ''}{FREQ[r.frequency]}</div>
+        </div>
+        <div>
+          <div className="k-label">Last</div>
+          <div className="k-val">{hist[0] ? <Money v={hist[0].amount} /> : <span className="muted">—</span>}</div>
+          <div className="small muted">{hist[0] ? fmtDate(hist[0].date, true) : 'none found'}</div>
+        </div>
+        <div>
+          <div className="k-label">Average (last {Math.min(12, hist.length) || 0})</div>
+          <div className="k-val"><Money v={avg} /></div>
+        </div>
+        <div>
+          <div className="k-label">{year} so far</div>
+          <div className="k-val"><Money v={sum(thisYear.map((t) => t.amount))} /></div>
+          <div className="small muted">{thisYear.length} payments</div>
+        </div>
+      </div>
+      <p className="small muted" style={{ marginBottom: 8 }}>
+        Matched on payee “{r.payee || r.name}”{r.payee ? '' : ' (the name — set a payee under Edit if the bank uses a different one)'} and on payments recorded from this item.
+        {byYear.size > 1 ? ` By year: ${[...byYear.entries()].map(([y, v]) => `${y} ${(v / 100).toFixed(2)}`).join(' · ')}.` : ''}
+      </p>
+      {hist.length ? (
+        <div className="table-wrap" style={{ maxHeight: '45vh' }}>
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Account</th>
+                <th>Payee</th>
+                <th className="r">Amount</th>
+                <th className="r">vs expected</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hist.map((t) => {
+                const dv = Math.abs(t.amount) - Math.abs(r.amount);
+                return (
+                  <tr key={t.id} className="click" onClick={() => openTx({ id: t.id })}>
+                    <td>{fmtDate(t.date, true)}</td>
+                    <td className="small muted">{m.accountById.get(t.accountId)?.name}</td>
+                    <td>{t.payee}</td>
+                    <td className="r"><Money v={t.amount} tone /></td>
+                    <td className="r small" style={{ color: dv > 0 ? 'var(--plum)' : dv < 0 ? 'var(--moss)' : undefined }}>{dv ? <Money v={dv} sign /> : '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">No past transactions found for this payee yet.</p>
+      )}
+    </Modal>
   );
 }
 
@@ -216,7 +340,16 @@ export function RecurringForm({ m, initial, onClose, scenarioId }: { m: Model; i
             </Field>
           ) : null}
           <Field label="Category">
-            <CategorySelect m={m} value={r.categoryId} onChange={(categoryId) => set({ categoryId })} />
+            <CategorySelect m={m} value={r.categoryId} onChange={(categoryId) => set({ categoryId })} date={r.nextDate} />
+          </Field>
+          <Field label="Counts for" help="Money for the following month (like a salary advance) is booked to the next budget month">
+            <select className="input" value={r.countsFor ?? 'same'} onChange={(e) => set({ countsFor: e.target.value === 'next' ? 'next' : undefined })}>
+              <option value="same">The budget month it arrives in</option>
+              <option value="next">The next budget month</option>
+            </select>
+          </Field>
+          <Field label="Payee" help="How it appears on your transactions; used to find past payments">
+            <input className="input" value={r.payee ?? ''} onChange={(e) => set({ payee: e.target.value || undefined })} placeholder={r.name || 'e.g. Netflix'} />
           </Field>
           <Field label="Ends (optional)">
             <input className="input" type="date" value={r.endDate ?? ''} onChange={(e) => set({ endDate: e.target.value || undefined })} />

@@ -387,6 +387,12 @@ function Household() {
               {s.currencies.map((c) => <option key={c}>{c}</option>)}
             </select>
           </Field>
+          <Field label="Budget months" help="You can still change the dates of any single month on the Budget page">
+            <select className="input" value={s.budgetPeriods ?? 'weeks'} onChange={(e) => setS({ ...s, budgetPeriods: e.target.value as 'weeks' | 'calendar' })}>
+              <option value="weeks">Whole weeks — start on the Monday nearest the 1st</option>
+              <option value="calendar">Calendar months — 1st to last day</option>
+            </select>
+          </Field>
           <Field label="Default account for new transactions">
             <select className="input" value={s.defaultAccountId ?? ''} onChange={(e) => setS({ ...s, defaultAccountId: e.target.value || undefined })}>
               <option value="">First current account</option>
@@ -433,8 +439,15 @@ function DataSettings() {
   return (
     <div className="stack">
       <section className="panel">
-        <h3>Export a copy</h3>
-        <p className="small muted" style={{ margin: '4px 0 8px' }}>Downloads every record as a readable JSON file. It is not encrypted — keep it somewhere private.</p>
+        <h3>Export to Excel</h3>
+        <p className="small muted" style={{ margin: '4px 0 8px' }}>One workbook with every transaction, account (with bank balance and difference), category, budget line, bill and income, yearly expense and planned entry, each as an Excel table you can filter and pivot.</p>
+        <button className="btn primary" onClick={async () => { const { exportAll, downloadXlsx } = await import('../lib/excel/export'); downloadXlsx(await exportAll(m), `Household Finance export ${today()}.xlsx`); toast('Excel export downloaded'); }}>
+          <Icon name="download" size={16} /> Export everything to Excel
+        </button>
+      </section>
+      <section className="panel">
+        <h3>Backup copy (JSON)</h3>
+        <p className="small muted" style={{ margin: '4px 0 8px' }}>Every record in the app’s own format, for restoring below. It is not encrypted — keep it somewhere private.</p>
         <button className="btn" onClick={async () => { const s = await exportSnapshot(0, []); const url = URL.createObjectURL(new Blob([JSON.stringify(s)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = `household-finance-${today()}.json`; a.click(); }}>
           <Icon name="download" size={16} /> Download data
         </button>
