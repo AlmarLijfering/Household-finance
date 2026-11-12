@@ -1,0 +1,5 @@
+# Keep the same line endings on every computer (avoids LF/CRLF warnings on Windows)
+* text=auto eol=lf
+*.png binary
+*.woff2 binary
+*.xlsx binary
