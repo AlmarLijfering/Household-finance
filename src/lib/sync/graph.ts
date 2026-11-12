@@ -5,6 +5,12 @@ import type { PublicClientApplication, AccountInfo } from '@azure/msal-browser';
 export const SCOPES = ['User.Read', 'Files.ReadWrite.All'];
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
+/** The address Microsoft returns to after sign-in. Register exactly this as the SPA redirect URI. */
+export function redirectUri(): string {
+  const p = location.pathname;
+  return location.origin + (p.endsWith('/') || /\.[a-z0-9]+$/i.test(p) ? p : p + '/');
+}
+
 export function clientId(): string {
   return (localStorage.getItem('pfm.clientId') || import.meta.env.VITE_MSAL_CLIENT_ID || '').trim();
 }
@@ -23,8 +29,10 @@ export async function getMsal(): Promise<PublicClientApplication> {
         auth: {
           clientId: id,
           authority: 'https://login.microsoftonline.com/consumers',
-          redirectUri: location.origin + location.pathname
-        },
+          redirectUri: redirectUri(),
+          // the app's own pages live after '#/': come back to the start page and let the app route
+          navigateToLoginRequestUrl: false
+        } as any,
         cache: { cacheLocation: 'localStorage' }
       });
       await app.initialize();

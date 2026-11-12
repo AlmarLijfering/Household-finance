@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { NavLink, Route, Routes, Link } from 'react-router-dom';
+import { NavLink, Route, Routes, Navigate } from 'react-router-dom';
 import { Icon, ToastProvider } from './components/ui';
 import { ModelCtx, useLiveModel } from './lib/useModel';
 import { useAutoSync, useSyncStatus, runSync } from './lib/useSync';
@@ -153,7 +153,7 @@ export default function App() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/more" element={<More />} />
                 <Route path="/categories" element={<Categories />} />
-                <Route path="*" element={<p>Page not found. <Link to="/">Go to the overview</Link>.</p>} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               <ConflictReview />
             </Shell>

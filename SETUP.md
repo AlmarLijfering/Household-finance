@@ -21,7 +21,7 @@ Alternatives: Azure Static Web Apps (free tier) or Cloudflare Pages work the sam
 2. **App registrations → New registration**
    - Name: `Household Finance`
    - Supported account types: **Personal Microsoft accounts only**
-   - Redirect URI: platform **Single-page application (SPA)**, URI = your app URL exactly, e.g. `https://almar.github.io/household-finance/`
+   - Redirect URI: platform **Single-page application (SPA)**, URI = your app URL exactly, with the trailing slash: `https://almarlijfering.github.io/Household-finance/` (the app shows the exact value under Settings → Sync & sharing)
    - Add `http://localhost:5173/` as a second SPA redirect URI if you want sync while running locally.
 3. Copy the **Application (client) ID**.
 4. **API permissions → Add → Microsoft Graph → Delegated**: `User.Read`, `Files.ReadWrite.All`. No admin consent is needed for personal accounts; each of you approves once at first sign-in.

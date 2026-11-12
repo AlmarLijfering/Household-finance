@@ -52,6 +52,11 @@ function SyncSettings() {
   const loc = st.state.location;
 
   useEffect(() => {
+    const e = sessionStorage.getItem('pfm.signinError');
+    if (e) {
+      setErr(`Sign-in did not complete: ${e}. Check that the redirect URI above is registered exactly like this, as a Single-page application.`);
+      sessionStorage.removeItem('pfm.signinError');
+    }
     if (!G.clientId()) return;
     G.currentAccount().then((a) => setWho(a ? a.username : null));
   }, []);
@@ -88,6 +93,9 @@ function SyncSettings() {
         <h3>1 · Microsoft app registration</h3>
         <p className="small muted" style={{ margin: '4px 0 12px' }}>
           A free app registration in Microsoft Entra gives this app permission to ask you to sign in. Set it up once (see SETUP.md), then paste its Application (client) ID here. The same ID is used on every device.
+        </p>
+        <p className="small" style={{ margin: '0 0 12px' }}>
+          Redirect URI to register (platform “Single-page application”): <code className="code-inline">{G.redirectUri()}</code>
         </p>
         <div className="row wrap">
           <input className="input" style={{ flex: '1 1 320px' }} value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" aria-label="Client ID" />
