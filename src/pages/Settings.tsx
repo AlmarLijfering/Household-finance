@@ -63,7 +63,15 @@ function SyncSettings() {
   useEffect(() => {
     if (!loc) return;
     (async () => {
-      const ring = await S.readKeyring(loc).catch(() => null);
+      let ring;
+      try {
+        ring = await S.readKeyring(loc);
+      } catch (e: any) {
+        // Could not read the folder: never offer to create a new passphrase on top of an existing one.
+        setNeedsKey(null);
+        setErr(String(e?.message ?? e));
+        return;
+      }
       const has = await S.restoreKey();
       if (!ring) setNeedsKey('create');
       else if (!has) setNeedsKey('unlock');

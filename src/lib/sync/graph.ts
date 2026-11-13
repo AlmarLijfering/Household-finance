@@ -85,6 +85,16 @@ export class PreconditionFailed extends Error {
     super('The household file changed on OneDrive since it was loaded.');
   }
 }
+/** OneDrive answered, but the browser could not read the file from OneDrive's download server. */
+export class DownloadBlocked extends Error {
+  constructor(public host: string) {
+    super(
+      `This browser can reach Microsoft Graph but cannot read files from OneDrive's download server (${host}). ` +
+        `Uploads still work, so nothing is lost. This usually means a company network, VPN or security software blocks downloads from personal OneDrive. ` +
+        `Try the app on your phone or a home computer to confirm.`
+    );
+  }
+}
 export class GraphError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -234,8 +244,17 @@ export async function download(loc: Location, path: string): Promise<{ meta: Dri
   const r = await gfetch(itemPath(loc, path) + '?select=id,name,eTag,size,lastModifiedDateTime,lastModifiedBy,@microsoft.graph.downloadUrl');
   if (r.status === 404) return null;
   const meta = await json<DriveItem & { '@microsoft.graph.downloadUrl': string }>(r);
-  const res = await fetch(meta['@microsoft.graph.downloadUrl']);
-  if (!res.ok) throw new GraphError(res.status, 'Download failed');
+  const url = meta['@microsoft.graph.downloadUrl'];
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 3 && !res; attempt++) {
+    try {
+      res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+    } catch {
+      if (attempt < 2) await sleep(700 * (attempt + 1));
+    }
+  }
+  if (!res) throw new DownloadBlocked(new URL(url).host);
+  if (!res.ok) throw new GraphError(res.status, `Download of ${path} failed (${res.status})`);
   return { meta, body: await res.arrayBuffer() };
 }
 
