@@ -4,7 +4,7 @@
 :root {
   --ink: #1c2a39;
   --ink-2: #3d4b59;
-  --ink-3: #6a7682;
+  --ink-3: #5b6772;
   --paper: #f4f6f5;
   --surface: #ffffff;
   --sunk: #eaeeec;
@@ -1100,18 +1100,18 @@ table.t tfoot td {
 .drill {
   background: none;
   border: 0;
-  padding: 2px 4px;
-  margin: -2px -4px;
-  border-radius: 4px;
+  padding: 2px 5px;
+  margin: -2px -5px;
+  border-radius: 5px;
   cursor: pointer;
   color: inherit;
   font: inherit;
-  text-decoration: underline dotted var(--line-2);
-  text-underline-offset: 3px;
 }
-.drill:hover {
+.drill:hover,
+.drill:focus-visible {
   background: var(--sunk);
-  text-decoration-color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .inactive-list {
@@ -1295,4 +1295,725 @@ table.t tfoot td {
   border-radius: 4px;
   user-select: all;
   word-break: break-all;
+}
+
+
+/* =====================================================================
+   Readability pass: group colours, budget cards, calmer tables
+   ===================================================================== */
+.page-head .sub {
+  max-width: 72ch;
+}
+table.t {
+  font-size: 14.5px;
+}
+table.t th {
+  color: var(--ink-2);
+  padding: 9px 12px;
+}
+table.t td {
+  padding: 9px 12px;
+}
+table.t th.c,
+table.t td.c {
+  text-align: center;
+}
+table.t tbody tr.click:hover td,
+table.t.bt tbody tr:hover td {
+  background: #f7f9f8;
+}
+
+/* group marker + category chip */
+.gdot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--g, #8a94a0);
+  display: inline-block;
+  flex: none;
+}
+.cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.cat-chip .gdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.cat-chip.none {
+  color: var(--ink-3);
+}
+.cat-chip.strong {
+  font-size: inherit;
+  font-weight: 600;
+}
+.cat-chip.strong .gdot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+/* group card: tinted header in the group's colour, lines below */
+.bgroup {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-top: var(--s4);
+  overflow: hidden;
+}
+.bgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 13px 16px;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--g) 9%, #fff);
+}
+.bgroup-head.static {
+  cursor: default;
+  border-bottom: 1px solid color-mix(in srgb, var(--g) 22%, #fff);
+}
+button.bgroup-head:hover {
+  background: color-mix(in srgb, var(--g) 13%, #fff);
+}
+.bgroup-chev {
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+  transition: transform 0.15s ease;
+}
+.bgroup-chev.open {
+  transform: rotate(90deg);
+}
+.bgroup-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--display);
+  font-weight: 650;
+  font-size: 17px;
+}
+.bgroup-title .gdot {
+  width: 12px;
+  height: 12px;
+}
+.bgroup-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.bgroup-figs {
+  margin-left: auto;
+  display: flex;
+  gap: 28px;
+}
+.bgroup-figs > span {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+}
+.bgroup-figs small {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.bgroup-figs b {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.bgroup-figs .emph b {
+  font-weight: 750;
+}
+.bgroup-bar {
+  height: 4px;
+  background: color-mix(in srgb, var(--g) 20%, #fff);
+}
+.bgroup-bar > div {
+  height: 100%;
+  background: var(--g);
+  transition: width 0.4s ease;
+}
+.bgroup-bar.over > div {
+  background: var(--plum);
+}
+.bgroup-foot {
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 860px) {
+  .bgroup-figs {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .bgroup-figs > span {
+    align-items: flex-start;
+  }
+}
+
+/* budget lines inside a group card */
+table.t.bt {
+  table-layout: fixed;
+}
+table.t.bt thead th {
+  position: static;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+table.t.bt td {
+  vertical-align: middle;
+}
+.bt-name {
+  display: block;
+  max-width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.bt-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bt-meta {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+tr.bsec td {
+  background: color-mix(in srgb, var(--g) 5%, #fff);
+  border-top: 1px solid var(--line-2);
+  font-family: var(--display);
+  font-weight: 650;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+table.t.bt tbody tr.bsec:hover td {
+  background: color-mix(in srgb, var(--g) 5%, #fff);
+}
+tr.bsec .money {
+  font-family: var(--body);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+table.t.bt .input.inline {
+  display: block;
+  width: 100%;
+  max-width: 116px;
+  margin-left: auto;
+  background: var(--paper);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-weight: 550;
+  text-align: right;
+  padding: 5px 8px;
+  min-height: 32px;
+}
+table.t.bt .input.inline.quiet {
+  background: transparent;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+table.t.bt .input.inline:hover {
+  border-color: var(--line-2);
+}
+table.t.bt .input.inline:focus {
+  background: #fff;
+  color: var(--ink);
+}
+table.t.bt tr.closed td {
+  background: #fafbfa;
+}
+table.t.bt tr.closed .bt-name {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+table.t.bt tr.closed .input.inline {
+  background: transparent;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+table.t.bt tr.closed .money {
+  color: var(--ink-3);
+}
+.zero {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.bt-remaining {
+  font-weight: 700;
+}
+.bt-x {
+  opacity: 0.3;
+}
+tr:hover .bt-x,
+.bt-x:focus-visible {
+  opacity: 1;
+}
+
+.balance-table td {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.balance-table .input.inline {
+  width: 116px;
+  background: var(--paper);
+  border-radius: 6px;
+}
+.balance-table tfoot tr.balance-total td {
+  background: var(--paper);
+  font-size: 15.5px;
+  font-family: var(--display);
+}
+
+/* transactions: one heading per day */
+tr.day td {
+  background: var(--paper);
+  border-top: 1px solid var(--line-2);
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+tr.day:first-child td {
+  border-top: 0;
+}
+.day-date {
+  font-family: var(--display);
+  font-weight: 650;
+  font-size: 14px;
+}
+.day-meta {
+  margin-left: 10px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.day-sum {
+  float: right;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.tx-acc {
+  font-size: 13px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px 14px;
+  align-items: end;
+}
+
+/* lists inside group cards */
+.list.flat {
+  border: 0;
+  border-radius: 0;
+}
+.list-sub {
+  padding: 6px 16px;
+  background: color-mix(in srgb, var(--g) 5%, #fff);
+  border-top: 1px solid var(--line);
+  font-family: var(--display);
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.list-row.compact {
+  min-height: 44px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.code-tag {
+  flex: none;
+  width: 62px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  background: var(--sunk);
+  border-radius: 4px;
+  padding: 2px 0;
+}
+
+/* wide month grids: first column stays in view, alternate rows shaded */
+table.t.grid td:first-child,
+table.t.grid th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  box-shadow: 1px 0 0 var(--line);
+}
+table.t.grid thead th {
+  z-index: 2;
+}
+table.t.grid thead th:first-child {
+  z-index: 3;
+}
+table.t.grid tbody tr:nth-child(even) td {
+  background: #f8faf9;
+}
+table.t.grid tbody tr.group td {
+  background: var(--paper);
+  position: sticky;
+  left: 0;
+}
+table.t.grid tbody tr:hover td {
+  background: #eef3f0;
+}
+table.t.grid tfoot td {
+  background: #fff;
+  position: sticky;
+  bottom: 0;
+}
+
+.bt-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.bt-line .bt-name {
+  white-space: nowrap;
+}
+.bt-code {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+tr.bsec td {
+  background: color-mix(in srgb, var(--g) 8%, #fff);
+  color: var(--ink);
+  font-size: 14px;
+}
+table.t.bt tbody tr.bsec:hover td {
+  background: color-mix(in srgb, var(--g) 8%, #fff);
+}
+@media (max-width: 860px) {
+  .bt-code {
+    display: none;
+  }
+  .bt-line .bt-name {
+    white-space: normal;
+  }
+}
+
+.mobile-only-flex {
+  display: none;
+}
+.section-head {
+  flex-wrap: wrap;
+}
+
+/* ---------- phones: tables become stacked rows ---------- */
+@media (max-width: 860px) {
+  .mobile-only-flex {
+    display: inline-flex;
+    justify-content: center;
+  }
+  .filters .field.more {
+    display: none;
+  }
+  .filters.open .field.more {
+    display: flex;
+  }
+  table.t {
+    font-size: 14px;
+  }
+  table.t th,
+  table.t td {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  /* budget lines */
+  table.t.bt,
+  table.t.bt tbody {
+    display: block;
+  }
+  table.t.bt thead,
+  table.t.bt colgroup {
+    display: none;
+  }
+  table.t.bt tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    grid-template-areas:
+      'name name name closed'
+      'est act rem rem';
+    gap: 6px 12px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    align-items: end;
+  }
+  table.t.bt tr:last-child {
+    border-bottom: 0;
+  }
+  table.t.bt td {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none !important;
+    text-align: left;
+    min-width: 0;
+  }
+  table.t.bt td.desk-only {
+    display: none;
+  }
+  table.t.bt td.c-name {
+    grid-area: name;
+    align-self: center;
+  }
+  table.t.bt td.c-est {
+    grid-area: est;
+  }
+  table.t.bt td.c-act {
+    grid-area: act;
+  }
+  table.t.bt td.c-rem {
+    grid-area: rem;
+    text-align: right;
+  }
+  table.t.bt td.c-closed {
+    grid-area: closed;
+    align-self: center;
+  }
+  table.t.bt td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11.5px;
+    color: var(--ink-3);
+    font-family: var(--body);
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  table.t.bt td.c-closed[data-label]::before {
+    display: none;
+  }
+  table.t.bt .input.inline {
+    margin-left: 0;
+    max-width: 120px;
+    text-align: left;
+  }
+  table.t.bt tr.bsec {
+    background: color-mix(in srgb, var(--g) 8%, #fff);
+    border-top: 1px solid var(--line-2);
+  }
+  table.t.bt tr.closed {
+    background: #fafbfa;
+  }
+
+  /* transactions */
+  table.t.txt,
+  table.t.txt tbody {
+    display: block;
+  }
+  table.t.txt thead {
+    display: none;
+  }
+  table.t.txt tr.tx {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'sel payee amt'
+      'sel cat acc';
+    gap: 2px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    align-items: center;
+  }
+  table.t.txt tr.tx td {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none !important;
+    min-width: 0;
+  }
+  table.t.txt tr.tx.sel {
+    background: #eef5f1;
+  }
+  table.t.txt td.tx-sel {
+    grid-area: sel;
+  }
+  table.t.txt td.tx-payee {
+    grid-area: payee;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  table.t.txt td.tx-amt {
+    grid-area: amt;
+    font-weight: 600;
+  }
+  table.t.txt td.tx-cat {
+    grid-area: cat;
+    overflow: hidden;
+  }
+  table.t.txt td.tx-acc {
+    grid-area: acc;
+    text-align: right;
+    font-size: 12.5px;
+  }
+  table.t.txt td.desk-only {
+    display: none;
+  }
+  table.t.txt tr.day,
+  table.t.txt tr.day td {
+    display: block;
+  }
+  .day-sum {
+    float: none;
+    display: block;
+  }
+  .day-meta {
+    margin-left: 6px;
+  }
+}
+@media (max-width: 860px) {
+  table.t.bt tr {
+    grid-template-columns: minmax(108px, 1.25fr) 1fr 1fr auto;
+  }
+  table.t.bt .input.inline {
+    max-width: none;
+    padding: 5px 7px;
+  }
+  .balance-table td,
+  .balance-table th {
+    font-size: 13px;
+    padding: 8px 6px;
+  }
+  .balance-table td:first-child,
+  .balance-table th:first-child {
+    padding-left: 12px;
+  }
+  .balance-table .input.inline {
+    width: 82px;
+    font-size: 13px;
+  }
+  .balance-table tfoot tr.balance-total td {
+    font-size: 14px;
+  }
+}
+table.t.grid td {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+/* Budget sections: name on top, total at the bottom, space between */
+table.t.bt tbody.bsec-next tr.bsec td {
+  border-top: 18px solid #fff;
+}
+table.t.bt tr.bsec td,
+table.t.bt tbody tr.bsec:hover td {
+  background: #fff;
+  padding: 10px 14px 6px;
+  border-bottom: 2px solid color-mix(in srgb, var(--g) 45%, #fff);
+}
+.bsec-name {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15.5px;
+  color: color-mix(in srgb, var(--g) 55%, var(--ink));
+}
+.bsec-count {
+  margin-left: 10px;
+  font-family: var(--body);
+  font-weight: 400;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+table.t.bt tbody.bsec-body tr:not(.bsec):not(.bsub) td.c-name {
+  padding-left: 26px;
+}
+table.t.bt tr.bsub td,
+table.t.bt tbody tr.bsub:hover td {
+  background: color-mix(in srgb, var(--g) 7%, #fff);
+  border-top: 1px solid color-mix(in srgb, var(--g) 30%, #fff);
+  border-bottom: 1px solid color-mix(in srgb, var(--g) 30%, #fff);
+  font-weight: 650;
+  color: var(--ink);
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+table.t.bt tr.bsub td.c-name {
+  padding-left: 26px;
+  font-family: var(--display);
+  font-size: 13.5px;
+}
+table.t.bt tr.bsub .money {
+  font-weight: 650;
+}
+@media (max-width: 860px) {
+  table.t.bt tbody.bsec-body {
+    display: block;
+  }
+  table.t.bt tr.bsec {
+    display: block;
+    background: #fff;
+    border-top: 0;
+  }
+  table.t.bt tr.bsec td {
+    display: block;
+    border-top: 0;
+  }
+  table.t.bt tbody.bsec-next tr.bsec {
+    margin-top: 16px;
+  }
+  table.t.bt tbody.bsec-next tr.bsec td {
+    border-top: 0;
+  }
+  table.t.bt tbody.bsec-body tr:not(.bsec):not(.bsub) td.c-name,
+  table.t.bt tr.bsub td.c-name {
+    padding-left: 0;
+  }
+  table.t.bt tr.bsub {
+    background: color-mix(in srgb, var(--g) 7%, #fff);
+  }
+}
+/* line the section totals up with the figures inside the amount fields */
+@media (min-width: 861px) {
+  table.t.bt tr.bsub td.desk-only.r,
+  table.t.bt tr.bsub td.c-est {
+    padding-right: 21px;
+  }
+}
+@media (max-width: 860px) {
+  table.t.bt tr.bsub td,
+  table.t.bt tbody tr.bsub:hover td {
+    border: 0;
+    background: transparent;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  table.t.bt tr.bsub {
+    border-top: 1px solid color-mix(in srgb, var(--g) 30%, #fff);
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  table.t.bt tr.bsec td,
+  table.t.bt tbody tr.bsec:hover td {
+    padding: 8px 0 6px;
+  }
 }

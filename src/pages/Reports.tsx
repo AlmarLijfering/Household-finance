@@ -8,6 +8,7 @@ import { currentBudgetMonth } from '../lib/calc/period';
 import { useSyncStatus, runSync } from '../lib/useSync';
 import { isReserve } from '../lib/calc/model';
 import { DrillMoney } from '../components/DrillDown';
+import { CatChip } from '../components/Group';
 
 type Tab = 'cash' | 'spend' | 'income' | 'balances';
 const ml = (m: string) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
@@ -49,7 +50,7 @@ export default function Reports() {
   const grid = (d: typeof sp) => (
     <div className="panel flush">
       <div className="table-wrap" style={{ maxHeight: '65vh' }}>
-        <table className="t">
+        <table className="t grid">
           <thead>
             <tr>
               <th>Category</th>
@@ -64,7 +65,7 @@ export default function Reports() {
               return (
                 <tr key={r.categoryId as string}>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    {c?.name ?? 'Uncategorised'}
+                    <CatChip m={m} categoryId={c?.id} />
                     {c?.section ? <span className="muted small"> · {c.section}</span> : null}
                   </td>
                   {r.values.map((v, i) => (

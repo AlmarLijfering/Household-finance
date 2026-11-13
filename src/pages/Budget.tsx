@@ -10,6 +10,7 @@ import { currentBudgetMonth, period, periodRule, ruleStart, weekRange } from '..
 import type { BudgetLine, Rollover, Category, MonthPlan } from '../lib/types';
 import { DrillMoney, type DrillFilter } from '../components/DrillDown';
 import { CategoryForm } from '../components/CategoryForm';
+import { GroupDot, groupVar } from '../components/Group';
 import type { Model } from '../lib/calc/model';
 
 export default function Budget() {
@@ -86,6 +87,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
 
   const groupOrder = ['IC', 'PC', 'RE', 'UC', 'YE', 'DIV'];
   const sections = [...mb.sections].sort((a, b) => groupOrder.indexOf(a.groupCode) - groupOrder.indexOf(b.groupCode));
+  const groupCodes = [...groupOrder.filter((c) => sections.some((x) => x.groupCode === c)), ...Array.from(new Set(sections.map((x) => x.groupCode))).filter((c) => !groupOrder.includes(c))];
   const shownGroups = mb.groups.filter((g) => g.estimate || g.actual);
   // Like the workbook: spending paid out of reserve funds is shown but left out of the balance.
   const totals = shownGroups.filter((g) => g.code !== 'DIV');
@@ -157,7 +159,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
           ) : null}
           <div className="panel flush section" style={{ marginTop: month < now ? 0 : 'var(--s5)' }}>
             <div className="table-wrap">
-              <table className="t">
+              <table className="t balance-table">
                 <thead>
                   <tr>
                     <th>Balance</th>
@@ -218,7 +220,9 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
                   </tr>
                   {totals.map((g) => (
                     <tr key={g.code}>
-                      <td>{g.name}</td>
+                      <td>
+                        <span className="cat-chip strong"><GroupDot code={g.code} />{g.name}</span>
+                      </td>
                       <td className="r desk-only"><Money v={g.baseline} /></td>
                       <td className="r"><Money v={g.estimate} /></td>
                       <td className="r"><DrillMoney v={g.actual} f={groupFilter(g.code, `${g.name} · ${monthLabel(month)}`)} /></td>
@@ -236,7 +240,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
                       <td className="r" style={{ fontWeight: 400 }}><Money v={g.remaining} /></td>
                     </tr>
                   ))}
-                  <tr>
+                  <tr className="balance-total">
                     <td>Balance</td>
                     <td className="r desk-only"><Money v={balance.baseline} tone /></td>
                     <td className="r"><Money v={balance.estimate} tone /></td>
@@ -248,57 +252,52 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
             </div>
           </div>
 
-          <div className="panel flush section" style={{ marginTop: 'var(--s5)' }}>
-            <div className="table-wrap">
-              <table className="t budget-table">
-                <thead>
-                  <tr>
-                    <th className="desk-only">Code</th>
-                    <th>Line</th>
-                    <th className="r desk-only">Baseline</th>
-                    <th className="r">Estimate</th>
-                    <th className="r">Actual</th>
-                    <th className="desk-only" style={{ width: 90 }} />
-                    <th className="r">Remaining</th>
-                    <th>Closed</th>
-                    <th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {sections.map((s) => (
-                    <Section key={s.groupCode + s.name} name={s.name} lines={s.lines} m={m} update={update} isFuture={isFuture} month={month} onEditCategory={setEditCat} />
-                  ))}
-                  {everydayMissing.length ? (
-                    <>
-                      <tr className="group">
-                        <td colSpan={9}>Not in the budget <span className="small muted" style={{ fontFamily: 'var(--body)', fontWeight: 400 }}>— everyday categories with spending but no budget line</span></td>
-                      </tr>
-                      {everydayMissing.map((u) => {
-                        const c = m.categoryById.get(u.categoryId);
-                        return (
-                          <tr key={u.categoryId}>
-                            <td className="code desk-only">{c?.code}</td>
-                            <td>{c?.name}</td>
-                            <td className="desk-only" />
-                            <td />
-                            <td className="r"><DrillMoney v={u.actual} f={{ title: `${c?.name} · ${monthLabel(month)}`, from: month, categoryIds: [u.categoryId] }} /></td>
-                            <td className="desk-only" />
-                            <td />
-                            <td />
-                            <td>
-                              <button className="btn sm" onClick={() => setAdding({ month, categoryId: u.categoryId, estimate: u.actual, baseline: 0 })}>
-                                Add to budget
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+          <div className="section-head" style={{ marginTop: 'var(--s6)' }}>
+            <h2>Budget lines</h2>
+            <span className="hint">Type in Baseline or Estimate to change them · click an Actual amount to see its transactions</span>
           </div>
+          {groupCodes.map((code) => {
+            const secs = sections.filter((x) => x.groupCode === code);
+            const g = mb.groups.find((x) => x.code === code);
+            return <GroupCard key={code} code={code} name={g?.name ?? secs[0].name} kind={g?.kind ?? secs[0].kind} sections={secs} m={m} update={update} isFuture={isFuture} month={month} weeks={per.weeks} onEditCategory={setEditCat} onAdd={() => setAdding({ month })} />;
+          })}
+          {everydayMissing.length ? (
+            <section className="bgroup" style={groupVar(null)}>
+              <div className="bgroup-head static">
+                <span className="bgroup-title">
+                  <GroupDot /> Not in the budget
+                </span>
+                <span className="bgroup-sub">Everyday categories with spending this month but no budget line</span>
+              </div>
+              <div className="table-wrap">
+                <table className="t bt">
+                  <tbody>
+                    {everydayMissing.map((u) => {
+                      const c = m.categoryById.get(u.categoryId);
+                      return (
+                        <tr key={u.categoryId}>
+                          <td>
+                            <div className="bt-line">
+                              <span className="cat-chip strong"><GroupDot code={m.groupById.get(c?.groupId ?? '')?.code} />{c?.name}</span>
+                              <span className="bt-code">{c?.code}</span>
+                            </div>
+                          </td>
+                          <td className="r" style={{ width: 150 }}>
+                            <DrillMoney v={u.actual} f={{ title: `${c?.name} · ${monthLabel(month)}`, from: month, categoryIds: [u.categoryId] }} />
+                          </td>
+                          <td className="r" style={{ width: 170 }}>
+                            <button className="btn sm" onClick={() => setAdding({ month, categoryId: u.categoryId, estimate: u.actual, baseline: 0 })}>
+                              Add to budget
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
         </>
       )}
       {adding ? <LineForm m={m} initial={adding} onClose={() => setAdding(null)} /> : null}
@@ -318,82 +317,191 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
   );
 }
 
-function Section({ name, lines, m, update, isFuture, month, onEditCategory }: { name: string; lines: LineResult[]; m: Model; update: (l: BudgetLine, p: Partial<BudgetLine>) => void; isFuture: boolean; month: string; onEditCategory: (c: Category) => void }) {
-  const remaining = sum(lines.map((l) => l.remaining));
+type SectionData = { name: string; kind: string; groupCode: string; lines: LineResult[] };
+
+/** One category group (Income, Planned costs, …) as a card: totals in the header, its sections and lines below. */
+function GroupCard({ code, name, kind, sections, m, update, isFuture, month, weeks, onEditCategory, onAdd }: { code: string; name: string; kind: string; sections: SectionData[]; m: Model; update: (l: BudgetLine, p: Partial<BudgetLine>) => void; isFuture: boolean; month: string; weeks: number; onEditCategory: (c: Category) => void; onAdd: () => void }) {
+  const [open, setOpen] = useState(true);
+  const income = kind === 'income';
+  // week lines for a week this month does not have (e.g. week 5 of a 4-week month) stay hidden while empty
+  const visible = (r: LineResult) => !(r.line.week && r.line.week > weeks && !r.line.estimate && !r.line.baseline && !r.actual);
+  const secs = sections.map((x) => ({ ...x, lines: x.lines.filter(visible) })).filter((x) => x.lines.length);
+  const all = secs.flatMap((x) => x.lines);
+  const tot = (rs: LineResult[]) => ({ baseline: sum(rs.map((r) => r.line.baseline)), estimate: sum(rs.map((r) => r.available)), actual: sum(rs.map((r) => r.actual)), remaining: sum(rs.map((r) => r.remaining)) });
+  const t = tot(all);
+  const pct = t.estimate > 0 ? Math.min(100, Math.round((t.actual / t.estimate) * 100)) : t.actual > 0 ? 100 : 0;
+  const over = !income && t.actual > t.estimate;
+  const closed = all.filter((r) => r.line.closed).length;
+  const showSections = secs.length > 1 || (secs[0] && secs[0].name !== name && secs[0].name.toLowerCase() !== name.toLowerCase().replace(/ costs?$/, ''));
+  if (!all.length) return null;
+  return (
+    <section className="bgroup" style={groupVar(code)}>
+      <button type="button" className="bgroup-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className={cx('bgroup-chev', open && 'open')}>
+          <Icon name="chev" size={18} />
+        </span>
+        <span className="bgroup-title">
+          <GroupDot code={code} /> {name}
+        </span>
+        <span className="bgroup-sub">
+          {all.length} line{all.length === 1 ? '' : 's'}
+          {closed ? ` · ${closed} closed` : ''}
+        </span>
+        <span className="bgroup-figs">
+          <span>
+            <small>Estimate</small>
+            <b><Money v={t.estimate} /></b>
+          </span>
+          <span>
+            <small>{income ? 'Received' : 'Spent'}</small>
+            <b><Money v={t.actual} /></b>
+          </span>
+          <span className={cx(t.remaining > 0 && 'emph')}>
+            <small>{income ? 'Still to come' : 'Remaining'}</small>
+            <b><Money v={t.remaining} /></b>
+          </span>
+        </span>
+      </button>
+      <div className={cx('bgroup-bar', over && 'over')} role="img" aria-label={`${pct}% of the estimate ${income ? 'received' : 'spent'}`}>
+        <div style={{ width: `${pct}%` }} />
+      </div>
+      {open ? (
+        <div className="table-wrap">
+          <table className="t bt">
+            <colgroup>
+              <col />
+              <col className="desk-only" style={{ width: 124 }} />
+              <col style={{ width: 132 }} />
+              <col style={{ width: 118 }} />
+              <col className="desk-only" style={{ width: 110 }} />
+              <col style={{ width: 128 }} />
+              <col style={{ width: 62 }} />
+              <col className="desk-only" style={{ width: 40 }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Line</th>
+                <th className="r desk-only">Baseline</th>
+                <th className="r">Estimate</th>
+                <th className="r">{income ? 'Received' : 'Actual'}</th>
+                <th className="desk-only" />
+                <th className="r">{income ? 'To come' : 'Remaining'}</th>
+                <th className="c">Closed</th>
+                <th className="desk-only" aria-label="Remove" />
+              </tr>
+            </thead>
+            {secs.map((sec, i) => {
+              const st = tot(sec.lines);
+              return (
+                <tbody key={sec.name} className={cx(showSections && 'bsec-body', showSections && i > 0 && 'bsec-next')}>
+                  <SectionRows showHead={!!showSections} name={sec.name} totals={st} lines={sec.lines} m={m} update={update} isFuture={isFuture} month={month} weeks={weeks} income={income} onEditCategory={onEditCategory} />
+                </tbody>
+              );
+            })}
+          </table>
+          <div className="bgroup-foot">
+            <button className="btn sm ghost" onClick={onAdd}>
+              <Icon name="plus" size={14} /> Add line
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SectionRows({ showHead, name, totals, lines, m, update, isFuture, month, weeks, income, onEditCategory }: { showHead: boolean; name: string; totals: { baseline: number; estimate: number; actual: number; remaining: number }; lines: LineResult[]; m: Model; update: (l: BudgetLine, p: Partial<BudgetLine>) => void; isFuture: boolean; month: string; weeks: number; income: boolean; onEditCategory: (c: Category) => void }) {
   return (
     <>
-      <tr className="group">
-        <td colSpan={6}>{name}</td>
-        <td className="r">
-          <Money v={remaining} />
-        </td>
-        <td colSpan={2} />
-      </tr>
+      {showHead ? (
+        <tr className="bsec">
+          <td colSpan={8}>
+            <span className="bsec-name">{name}</span>
+            <span className="bsec-count">{lines.length} {lines.length === 1 ? 'line' : 'lines'}</span>
+          </td>
+        </tr>
+      ) : null}
       {lines.map((r) => {
         const c = m.categoryById.get(r.line.categoryId);
-        const income = r.kind === 'income';
+        const label = r.line.label ?? c?.name;
+        const wr = r.line.week ? weekRange(m, month, r.line.week) : null;
+        const labelHasName = !!c && !!r.line.label && r.line.label.toLowerCase().includes(c.name.toLowerCase());
+        const meta = [r.line.label && r.line.label !== c?.name && !labelHasName ? c?.name : '', wr ? (r.line.week! > weeks ? `no week ${r.line.week} this month` : `${fmtDate(wr.start)} – ${fmtDate(wr.end)}`) : ''].filter(Boolean).join(' · ');
+        const isOver = r.over > 0 && !income;
         return (
-          <tr key={r.line.id} className={cx(r.line.closed && 'closed')}>
-            <td className="code desk-only">{c?.code}</td>
-            <td className="name">
-              <button type="button" className="drill" style={{ textDecoration: 'none', fontWeight: 500 }} onClick={() => c && onEditCategory(c)} title="Edit category">
-                {r.line.label ?? c?.name}
-              </button>
-              {r.line.week ? (
-                <div className="small muted">
-                  {c?.name} · {fmtDate(weekRange(m, month, r.line.week).start)} – {fmtDate(weekRange(m, month, r.line.week).end)}
-                </div>
-              ) : r.line.label && r.line.label !== c?.name ? (
-                <div className="small muted">{c?.name}</div>
-              ) : null}
+          <tr key={r.line.id} className={cx(r.line.closed && 'closed', isOver && 'is-over')}>
+            <td className="c-name">
+              <div className="bt-line">
+                <button type="button" className="bt-name" onClick={() => c && onEditCategory(c)} title="Edit category">
+                  {label}
+                </button>
+                <span className="bt-code">{c?.code}</span>
+              </div>
+              {meta ? <div className="bt-meta">{meta}</div> : null}
             </td>
             <td className="r desk-only">
-              <AmountInput inline ariaLabel={`Baseline for ${r.line.label ?? c?.name}`} value={r.line.baseline} onChange={(v) => v !== r.line.baseline && update(r.line, { baseline: v })} />
+              <AmountInput inline className="quiet" ariaLabel={`Baseline for ${label}`} value={r.line.baseline} onChange={(v) => v !== r.line.baseline && update(r.line, { baseline: v })} />
             </td>
-            <td className="r">
-              <AmountInput inline ariaLabel={`Estimate for ${r.line.label ?? c?.name}`} value={r.line.estimate} onChange={(v) => v !== r.line.estimate && update(r.line, { estimate: v })} />
+            <td className="r c-est" data-label="Estimate">
+              <AmountInput inline ariaLabel={`Estimate for ${label}`} value={r.line.estimate} onChange={(v) => v !== r.line.estimate && update(r.line, { estimate: v })} />
               {r.carryIn ? (
-                <div className="small" style={{ color: r.carryIn > 0 ? 'var(--moss)' : 'var(--plum)' }} title="Rolled over from last month">
+                <div className="bt-meta" style={{ color: r.carryIn > 0 ? 'var(--moss)' : 'var(--plum)' }} title="Rolled over from last month">
                   {r.carryIn > 0 ? '+' : ''}
                   <Money v={r.carryIn} /> rollover
                 </div>
               ) : null}
             </td>
-            <td className="r">
-              <DrillMoney
-                v={r.actual}
-                f={{
-                  title: `${r.line.label ?? c?.name} · ${monthLabel(month)}`,
-                  from: month,
-                  categoryIds: [r.line.categoryId],
-                  week: r.line.week,
-                  excludeWeeks: r.line.week ? undefined : lines.filter((x) => x.line.categoryId === r.line.categoryId && x.line.week).map((x) => x.line.week!)
-                }}
-              />
+            <td className="r c-act" data-label={income ? 'Received' : 'Actual'}>
+              {r.actual ? (
+                <DrillMoney
+                  v={r.actual}
+                  f={{
+                    title: `${label} · ${monthLabel(month)}`,
+                    from: month,
+                    categoryIds: [r.line.categoryId],
+                    week: r.line.week,
+                    excludeWeeks: r.line.week ? undefined : lines.filter((x) => x.line.categoryId === r.line.categoryId && x.line.week).map((x) => x.line.week!)
+                  }}
+                />
+              ) : (
+                <span className="zero">–</span>
+              )}
             </td>
-            <td className="desk-only">
-              {!isFuture ? <Meter value={r.actual} max={r.available} over={!income && r.actual > r.available} /> : null}
-            </td>
-            <td className="r">
-              {r.over > 0 && !income ? (
+            <td className="desk-only">{!isFuture && (r.available > 0 || r.actual > 0) ? <Meter value={r.actual} max={r.available} over={isOver} /> : null}</td>
+            <td className="r c-rem" data-label={income ? 'To come' : 'Remaining'}>
+              {isOver ? (
                 <span className="badge bad" title="Spent more than estimated">
                   over <Money v={r.over} />
                 </span>
+              ) : r.remaining > 0 ? (
+                <b className="bt-remaining"><Money v={r.remaining} /></b>
               ) : (
-                <Money v={r.remaining} />
+                <span className="zero">{r.line.closed ? 'closed' : r.actual > 0 ? 'done' : '–'}</span>
               )}
             </td>
-            <td>
-              <input type="checkbox" aria-label="Closed" checked={r.line.closed} onChange={(e) => update(r.line, { closed: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--moss)' }} />
+            <td className="c c-closed" data-label="Closed">
+              <input type="checkbox" aria-label={`${label} closed`} title="Closed: nothing more expected on this line" checked={r.line.closed} onChange={(e) => update(r.line, { closed: e.target.checked })} className="sel-box" />
             </td>
-            <td>
-              <button className="icon-btn" aria-label="Remove line" onClick={() => del('budgetLines', r.line.id, 'Remove budget line')}>
-                <Icon name="x" size={16} />
+            <td className="desk-only">
+              <button className="icon-btn bt-x" aria-label={`Remove ${label}`} title="Remove line" onClick={() => del('budgetLines', r.line.id, 'Remove budget line')}>
+                <Icon name="x" size={15} />
               </button>
             </td>
           </tr>
         );
       })}
+      {showHead ? (
+        <tr className="bsub">
+          <td className="c-name">Total {name}</td>
+          <td className="r desk-only"><Money v={totals.baseline} /></td>
+          <td className="r c-est" data-label="Estimate"><Money v={totals.estimate} /></td>
+          <td className="r c-act" data-label={income ? 'Received' : 'Actual'}><Money v={totals.actual} /></td>
+          <td className="desk-only" />
+          <td className="r c-rem" data-label={income ? 'To come' : 'Remaining'}><Money v={totals.remaining} /></td>
+          <td className="c-closed" />
+          <td className="desk-only" />
+        </tr>
+      ) : null}
     </>
   );
 }
@@ -504,7 +612,7 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
       ) : (
         <div className="panel flush">
           <div className="table-wrap" style={{ maxHeight: '70vh' }}>
-            <table className="t">
+            <table className="t grid">
               <thead>
                 <tr>
                   <th>Category</th>
@@ -523,7 +631,7 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
                   lastGroup = g?.code ?? '';
                   const e = grid.cats.get(c.id)!;
                   return (
-                    <FragmentRow key={c.id} head={head ? g?.name : undefined}>
+                    <FragmentRow key={c.id} head={head ? <span className="cat-chip strong"><GroupDot code={g?.code} />{g?.name}</span> : undefined}>
                       <td style={{ whiteSpace: 'nowrap' }}>{c.name}</td>
                       {MONTHS.map((_, i) => (
                         <td key={i} className="r small">
@@ -559,7 +667,7 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
   );
 }
 
-function FragmentRow({ head, children }: { head?: string; children: React.ReactNode }) {
+function FragmentRow({ head, children }: { head?: React.ReactNode; children: React.ReactNode }) {
   return (
     <>
       {head ? (

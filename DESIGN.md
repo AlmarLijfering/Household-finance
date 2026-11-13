@@ -86,3 +86,11 @@ These require your two real Microsoft accounts and devices; see SETUP.md §6 for
 3. Excel PivotTable/Power Query refresh on Windows, Mac, web and iPhone, and deciding which clients need report authoring.
 4. Graph's Excel workbook session API does not support personal accounts, so reports are generated in the browser (ExcelJS) and replaced whole. The library cannot write PivotTables or slicers; the published workbooks provide structured Tables as their source instead.
 5. Storage limits: the household snapshot is about 0.5 MB per year of transactions (gzip makes it smaller), far below OneDrive and browser limits.
+
+## Visual design and readability
+
+- **Group colours.** Each category group has one colour (Income green, Planned costs blue, Reservations amber, Unplanned costs purple, Yearly expenses teal, Paid from reserves slate), defined in `src/components/Group.tsx`. It appears as a small marker next to a group or category name and as the tint of group headers; the name is always shown too, so colour is never the only cue. Text never takes the group colour.
+- **Budget.** One card per group with its totals and a progress bar in the header (click to collapse), section rows with subtotals, and one line per row. Editable amounts sit in lightly filled fields; the figure that matters most (Remaining) is the only bold number; zeros are replaced by a quiet dash, "done" or "closed". Week lines for a week the month does not have stay hidden while empty.
+- **Lists.** Transactions get one heading per day (with budget month and week) instead of a date on every row, and a category marker per row. Wide month grids keep the first column in view and shade alternate rows.
+- **Phones.** Budget lines and transactions turn into stacked rows with small labels; extra transaction filters sit behind "More filters".
+- **Contrast and size.** Secondary text is #5B6772 (above 4.5:1 on white and on the page background); the smallest text is 11.5px for codes, 12.5px for meta lines; touch targets are at least 44px on lists.

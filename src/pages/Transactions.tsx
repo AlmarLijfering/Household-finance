@@ -19,6 +19,7 @@ export default function Transactions() {
   const [account, setAccount] = useState('all');
   const [cat, setCat] = useState<string | null>(null);
   const [month, setMonth] = useState('');
+  const [moreFilters, setMoreFilters] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const loc = useLocation();
@@ -89,28 +90,57 @@ export default function Transactions() {
         </div>
       ) : null}
       <div className="panel" style={{ marginBottom: 'var(--s3)' }}>
-        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
-          <input className="input" placeholder="Search" aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className="input" aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
-            <option value="all">All accounts</option>
-            {m.accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <CategorySelect m={m} value={cat} onChange={setCat} ariaLabel="Category" allowNew={false} showEnded />
-          <select className="input" aria-label="Type" value={type} onChange={(e) => setType(e.target.value as any)}>
-            <option value="all">All types</option>
-            <option value="out">Money out</option>
-            <option value="in">Money in</option>
-            <option value="transfer">Transfers</option>
-            <option value="uncat">Needs a category</option>
-            <option value="earmark">Check budget month ({hints.size})</option>
-          </select>
-          <input className="input" type="month" aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} title="Month" />
-          <input className="input" type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <input className="input" type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <div className={moreFilters ? 'filters open' : 'filters'}>
+          <label className="field">
+            <span>Search</span>
+            <input className="input" placeholder="Payee, memo, category or amount" value={q} onChange={(e) => setQ(e.target.value)} />
+          </label>
+          <label className="field more">
+            <span>Account</span>
+            <select className="input" value={account} onChange={(e) => setAccount(e.target.value)}>
+              <option value="all">All accounts</option>
+              {m.accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field more">
+            <span>Category</span>
+            <CategorySelect m={m} value={cat} onChange={setCat} allowNew={false} showEnded emptyLabel="All categories" />
+          </label>
+          <label className="field more">
+            <span>Type</span>
+            <select className="input" value={type} onChange={(e) => setType(e.target.value as any)}>
+              <option value="all">All types</option>
+              <option value="out">Money out</option>
+              <option value="in">Money in</option>
+              <option value="transfer">Transfers</option>
+              <option value="uncat">Needs a category</option>
+              <option value="earmark">Check budget month ({hints.size})</option>
+            </select>
+          </label>
+          <label className="field more">
+            <span>Budget month</span>
+            <input className="input" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          </label>
+          <label className="field more">
+            <span>From date</span>
+            <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="field more">
+            <span>To date</span>
+            <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+          <button className="btn mobile-only-flex" type="button" onClick={() => setMoreFilters(!moreFilters)} aria-expanded={moreFilters}>
+            {moreFilters ? 'Fewer filters' : `More filters${[account !== 'all', cat, type !== 'all', month, from, to].filter(Boolean).length ? ` (${[account !== 'all', cat, type !== 'all', month, from, to].filter(Boolean).length} on)` : ''}`}
+          </button>
+          {q || account !== 'all' || cat || type !== 'all' || month || from || to ? (
+            <button className="btn ghost" style={{ alignSelf: 'end' }} onClick={() => { setQ(''); setAccount('all'); setCat(null); setType('all'); setMonth(''); setFrom(''); setTo(''); }}>
+              Clear filters
+            </button>
+          ) : null}
         </div>
       </div>
       <div className="panel flush">

@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
+import { GroupDot, groupVar } from '../components/Group';
 import { useModel } from '../lib/useModel';
 import { commit } from '../lib/db';
 import { Icon, Modal, useToast } from '../components/ui';
@@ -64,29 +65,47 @@ export default function Categories() {
       {m.groups.map((g) => {
         const cats = m.categories.filter((c) => c.groupId === g.id && (showArchived || !c.archived));
         if (!cats.length) return null;
+        // sub-headings per budget section (Bucharest, Joshua, Car…) when a group has several
+        const sectionNames = Array.from(new Set(cats.map((c) => c.section ?? '')));
+        const showSections = sectionNames.length > 1;
         return (
-          <div key={g.id} className="section" style={{ marginTop: 'var(--s5)' }}>
-            <div className="section-head">
-              <h2>{g.name}</h2>
-              <span className="hint">{g.code}</span>
+          <section key={g.id} className="bgroup" style={groupVar(g.code)}>
+            <div className="bgroup-head static">
+              <span className="bgroup-title">
+                <GroupDot code={g.code} /> {g.name}
+              </span>
+              <span className="bgroup-sub">
+                {g.code} · {cats.length} categor{cats.length === 1 ? 'y' : 'ies'}
+              </span>
             </div>
-            <div className="list">
-              {cats.map((c) => (
-                <div key={c.id} className="list-row click" onClick={() => setEdit(c)} style={{ opacity: c.archived ? 0.55 : 1 }}>
-                  <span className="muted small" style={{ width: 58 }}>{c.code}</span>
-                  <div className="grow">
-                    <div className="title">{c.name}</div>
-                    <div className="meta">{[c.section, scopeLabel(m, c), c.rollover && c.rollover !== 'none' ? 'rollover' : '', c.archived ? 'archived' : ''].filter(Boolean).join(' · ')}</div>
-                  </div>
-                  {c.activeUntil ? (
-                    <span className={c.activeUntil < today() ? 'badge' : 'badge warn'}>{c.activeUntil < today() ? `Ended ${fmtDate(c.activeUntil, true)}` : `Until ${fmtDate(c.activeUntil, true)}`}</span>
-                  ) : null}
-                  <span className="muted small desk-only">{counts.get(c.id) ?? 0} transactions</span>
-                  <Icon name="chev" size={16} />
-                </div>
+            <div className="list flat">
+              {sectionNames.map((sec) => (
+                <Fragment key={sec}>
+                  {showSections ? <div className="list-sub">{sec || 'No section'}</div> : null}
+                  {cats
+                    .filter((c) => (c.section ?? '') === sec)
+                    .map((c) => {
+                      const limited = !!(c.accountTypes?.length || c.accountIds?.length);
+                      const n = counts.get(c.id) ?? 0;
+                      return (
+                        <div key={c.id} className="list-row click compact" onClick={() => setEdit(c)} style={{ opacity: c.archived ? 0.55 : 1 }}>
+                          <span className="code-tag">{c.code}</span>
+                          <div className="grow title">{c.name}</div>
+                          {limited ? <span className="badge info" title="Only offered on these accounts">{scopeLabel(m, c)}</span> : null}
+                          {c.rollover && c.rollover !== 'none' ? <span className="badge">Rollover</span> : null}
+                          {c.archived ? <span className="badge">Archived</span> : null}
+                          {c.activeUntil ? (
+                            <span className={c.activeUntil < today() ? 'badge' : 'badge warn'}>{c.activeUntil < today() ? `Ended ${fmtDate(c.activeUntil, true)}` : `Until ${fmtDate(c.activeUntil, true)}`}</span>
+                          ) : null}
+                          <span className="muted small desk-only" style={{ width: 120, textAlign: 'right' }}>{n ? `${n} transaction${n === 1 ? '' : 's'}` : 'not used yet'}</span>
+                          <Icon name="chev" size={16} className="muted" />
+                        </div>
+                      );
+                    })}
+                </Fragment>
               ))}
             </div>
-          </div>
+          </section>
         );
       })}
       {edit ? <CategoryForm initial={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} /> : null}

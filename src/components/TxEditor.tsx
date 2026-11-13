@@ -24,7 +24,7 @@ export interface TxDraft {
   recurringId?: ID; // posting a bill/income: the schedule advances when saved
 }
 
-export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true, date, showEnded }: { value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean; date?: string; showEnded?: boolean }) {
+export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true, date, showEnded, emptyLabel }: { emptyLabel?: string; value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean; date?: string; showEnded?: boolean }) {
   const [creating, setCreating] = useState(false);
   const account = accountId ? m.accountById.get(accountId) : undefined;
   const on = date ?? today();
@@ -40,7 +40,7 @@ export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, 
       value={value ?? ''}
       onChange={(e) => (e.target.value === '__new' ? setCreating(true) : onChange(e.target.value || null))}
     >
-      {allowEmpty ? <option value="">— No category —</option> : null}
+      {allowEmpty ? <option value="">{emptyLabel ?? '— No category —'}</option> : null}
       {m.groups
         .filter((g) => !filter || filter(g.kind))
         .filter((g) => m.categories.some((c) => c.groupId === g.id && visible(c)))

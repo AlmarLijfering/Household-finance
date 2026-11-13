@@ -111,6 +111,11 @@ export function fmtDate(d: ISODate, withYear = false): string {
   const x = parseISO(d);
   return `${x.getDate()} ${MONTHS[x.getMonth()]}${withYear ? ' ' + x.getFullYear() : ''}`;
 }
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** "Mon 9 Nov 2026" */
+export function fmtDay(d: ISODate): string {
+  return `${DOW[parseISO(d).getDay()]} ${fmtDate(d, true)}`;
+}
 export function daysBetween(a: ISODate, b: ISODate): number {
   return Math.round((parseISO(b).getTime() - parseISO(a).getTime()) / 86400000);
 }

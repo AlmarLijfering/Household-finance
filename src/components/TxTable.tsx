@@ -2,7 +2,12 @@ import { useState } from 'react';
 import type { Transaction } from '../lib/types';
 import type { Model } from '../lib/calc/model';
 import { categoryLabel } from '../lib/calc/model';
-import { cx, fmtDate, MONTHS, monthLabel } from '../lib/util';
+import { cx, fmtDay, MONTHS, monthLabel, sum } from '../lib/util';
+import { CatChip } from './Group';
+import { Icon } from './ui';
+import { txMonth, txWeek } from '../lib/calc/period';
+import { txBase } from '../lib/calc/model';
+import { Fragment } from 'react';
 import { useMemo } from 'react';
 import { earmarkHints } from '../lib/calc/earmark';
 import { BulkEdit } from './BulkEdit';
@@ -44,6 +49,18 @@ export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = t
   const [editing, setEditing] = useState(false);
   const hints = useMemo(() => earmarkHints(m), [m]);
   const rows = txs.slice(0, limit);
+  // one heading per day instead of repeating the date on every row
+  const perDay = useMemo(() => {
+    const map = new Map<string, { n: number; net: number }>();
+    for (const t of txs) {
+      const d = map.get(t.date) ?? { n: 0, net: 0 };
+      d.n += 1;
+      if (!t.transferId) d.net += txBase(m, t);
+      map.set(t.date, d);
+    }
+    return map;
+  }, [txs, m]);
+  const span = (bulk ? 1 : 0) + (showAccount ? 1 : 0) + 3 + (running ? 1 : 0);
   // keep only selections that are still in the (filtered) list
   const visibleSel = useMemo(() => new Set(txs.filter((t) => sel.has(t.id)).map((t) => t.id)), [txs, sel]);
   if (!txs.length) return <p className="muted" style={{ padding: 16 }}>No transactions match.</p>;
@@ -74,7 +91,7 @@ export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = t
         </div>
       ) : null}
       <div className="table-wrap">
-        <table className="t">
+        <table className="t txt">
           <thead>
             <tr>
               {bulk ? (
@@ -91,7 +108,6 @@ export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = t
                   />
                 </th>
               ) : null}
-              <th>Date</th>
               {showAccount ? <th>Account</th> : null}
               <th>Payee</th>
               <th>Category</th>
@@ -100,28 +116,43 @@ export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = t
             </tr>
           </thead>
           <tbody>
-            {rows.map((t) => {
+            {rows.map((t, i) => {
               const acc = m.accountById.get(t.accountId);
+              const newDay = i === 0 || rows[i - 1].date !== t.date;
+              const day = perDay.get(t.date);
               return (
-                <tr key={t.id} className={cx('click', visibleSel.has(t.id) && 'sel')} onClick={() => open({ id: t.id })}>
+                <Fragment key={t.id}>
+                {newDay ? (
+                  <tr className="day">
+                    <td colSpan={span}>
+                      <span className="day-date">{fmtDay(t.date)}</span>
+                      <span className="day-meta">
+                        {MONTHS[Number(txMonth(m, { date: t.date }).slice(5, 7)) - 1]} budget · week {txWeek(m, { date: t.date })}
+                      </span>
+                      <span className="day-sum">
+                        {day?.n} transaction{day?.n === 1 ? '' : 's'} · net <Money v={day?.net ?? 0} sign />
+                      </span>
+                    </td>
+                  </tr>
+                ) : null}
+                <tr className={cx('click tx', visibleSel.has(t.id) && 'sel')} onClick={() => open({ id: t.id })}>
                   {bulk ? (
-                    <td onClick={(e) => { e.stopPropagation(); toggle(t.id); }}>
+                    <td className="tx-sel" onClick={(e) => { e.stopPropagation(); toggle(t.id); }}>
                       <input type="checkbox" aria-label="Select" checked={visibleSel.has(t.id)} onChange={() => toggle(t.id)} onClick={(e) => e.stopPropagation()} className="sel-box" />
                     </td>
                   ) : null}
-                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.date, true)}</td>
-                  {showAccount ? <td className="muted">{acc?.name}</td> : null}
-                  <td>
+                  {showAccount ? <td className="tx-acc">{acc?.name}</td> : null}
+                  <td className="tx-payee">
                     <div style={{ fontWeight: 550 }}>{t.payee || <span className="muted">—</span>}</div>
                     {t.memo ? <div className="small muted">{t.memo}</div> : null}
                   </td>
-                  <td className="small">
-                    {txCategoryText(m, t)}
+                  <td className="tx-cat">
+                    <TxCategory m={m} t={t} />
                     {t.budgetMonth ? <span className="badge info" style={{ marginLeft: 6 }} title="Counts for another budget month than its date">for {MONTHS[Number(t.budgetMonth.slice(5, 7)) - 1]}</span> : null}
                     {hints.get(t.id) ? <EarmarkFlag t={t} suggested={hints.get(t.id)!.suggested} reason={hints.get(t.id)!.reason} /> : null}
                   </td>
-                  <td className="r">
-                    <Money v={t.amount} tone={t.amount > 0} cur={acc?.currency} />
+                  <td className="r tx-amt">
+                    <Money v={t.amount} tone={t.amount > 0} sign={t.amount > 0} cur={acc?.currency} />
                   </td>
                   {running ? (
                     <td className="r muted desk-only">
@@ -129,6 +160,7 @@ export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = t
                     </td>
                   ) : null}
                 </tr>
+                </Fragment>
               );
             })}
           </tbody>
@@ -173,3 +205,19 @@ export function EarmarkFlag({ t, suggested, reason }: { t: Transaction; suggeste
     </span>
   );
 }
+
+/** Category of a transaction with its group marker; transfers show the other account. */
+export function TxCategory({ m, t }: { m: Model; t: Transaction }) {
+  if (t.splits?.length) return <span className="cat-chip none"><Icon name="split" size={14} /> Split · {t.splits.length} categories</span>;
+  if (t.transferId) {
+    const other = m.accountById.get(t.transferAccountId ?? '')?.name ?? 'another account';
+    return (
+      <>
+        <span className="cat-chip none"><Icon name="transfer" size={14} /> {t.amount < 0 ? `To ${other}` : `From ${other}`}</span>
+        {t.categoryId ? <> <CatChip m={m} categoryId={t.categoryId} /></> : null}
+      </>
+    );
+  }
+  return <CatChip m={m} categoryId={t.categoryId} />;
+}
+void sum;
