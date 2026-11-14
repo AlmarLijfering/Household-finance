@@ -3,7 +3,8 @@ import { useModel } from '../lib/useModel';
 import { balanceHistory, cashFlow, incomeByCategory, spendingByCategory } from '../lib/calc/reports';
 import { CashFlowChart, TrendChart, SERIES } from '../components/charts';
 import { Icon, Money, Seg, useToast } from '../components/ui';
-import { MONTHS, shiftMonth, sum } from '../lib/util';
+import { MONTHS, monthLabel, shiftMonth, sum } from '../lib/util';
+import type { ReportView } from '../lib/types';
 import { currentBudgetMonth } from '../lib/calc/period';
 import { useSyncStatus, runSync } from '../lib/useSync';
 import { isReserve } from '../lib/calc/model';
@@ -18,13 +19,30 @@ export default function Reports() {
   const m = useModel();
   const toast = useToast();
   const sync = useSyncStatus();
-  const [tab, setTab] = useState<Tab>('flow');
-  const [to, setTo] = useState(currentBudgetMonth(m));
+  // the last tab is remembered on this device
+  const [tab, setTabRaw] = useState<Tab>(() => (localStorage.getItem('pfm.reportTab') as Tab) || 'flow');
+  const setTab = (t: Tab) => {
+    setTabRaw(t);
+    try {
+      localStorage.setItem('pfm.reportTab', t);
+    } catch {}
+  };
+  // reports never run into the future: the last month is the current budget month
+  const now = currentBudgetMonth(m);
+  const [to, setTo] = useState(now);
   const [span, setSpan] = useState<'6' | '12' | 'year'>('12');
   const [acc, setAcc] = useState('all');
   const [busy, setBusy] = useState(false);
-  const from = span === 'year' ? `${to.slice(0, 4)}-01` : shiftMonth(to, -(Number(span) - 1));
-  const to2 = span === 'year' ? `${to.slice(0, 4)}-12` : to;
+  const end = to > now ? now : to;
+  const from = span === 'year' ? `${end.slice(0, 4)}-01` : shiftMonth(end, -(Number(span) - 1));
+  const to2 = span === 'year' ? (`${end.slice(0, 4)}-12` > now ? now : `${end.slice(0, 4)}-12`) : end;
+  const view: ReportView = { span, accountId: acc === 'all' ? undefined : acc, endMonth: end === now ? undefined : end };
+  const applyView = (v?: ReportView) => {
+    if (!v) return;
+    setSpan(v.span);
+    setAcc(v.accountId ?? 'all');
+    setTo(v.endMonth && v.endMonth < now ? v.endMonth : now);
+  };
   const f = { from, to: to2, accountIds: acc === 'all' ? undefined : [acc] };
   const cf = useMemo(() => cashFlow(m, f), [m, from, to2, acc]);
   const sp = useMemo(() => spendingByCategory(m, f), [m, from, to2, acc]);
@@ -75,7 +93,7 @@ export default function Reports() {
                     </td>
                   ))}
                   <td className="r"><b><Money v={r.total} compact /></b></td>
-                  <td className="r muted"><Money v={Math.round(r.total / d.months.length)} compact /></td>
+                  <td className="r muted"><Money v={r.values.some((v) => v) ? Math.round(r.total / r.values.filter((v) => v).length) : 0} compact /></td>
                 </tr>
               );
             })}
@@ -124,11 +142,14 @@ export default function Reports() {
           {m.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
         <Seg value={span} onChange={setSpan} options={[['6', '6 months'], ['12', '12 months'], ['year', 'Calendar year']]} />
-        <input className="input" type="month" style={{ width: 'auto' }} value={to} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="Ending month" />
+        <input className="input" type="month" style={{ width: 'auto' }} value={end} max={now} onChange={(e) => e.target.value && setTo(e.target.value > now ? now : e.target.value)} aria-label="Last reporting month" />
       </div>
+      <p className="small muted" style={{ margin: '-6px 0 var(--s4)' }}>
+        {monthLabel(from)} – {monthLabel(to2)} · last reporting month <b>{monthLabel(to2)}</b>{to2 === now ? ' (still running)' : ''}
+      </p>
 
       {tab === 'flow' ? <IncomeOutView m={m} f={f} /> : null}
-      {tab === 'groups' ? <GroupsView m={m} f={f} /> : null}
+      {tab === 'groups' ? <GroupsView m={m} f={f} view={view} applyView={applyView} lastMonth={to2} /> : null}
       {tab === 'cash' ? (
         <>
           <div className="panel">

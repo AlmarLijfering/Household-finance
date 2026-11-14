@@ -2140,3 +2140,53 @@ body.archive-mode .tabbar .add {
 .scroll-x .seg button {
   white-space: nowrap;
 }
+
+/* saved category reports */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--s4);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--ink-3);
+}
+.chip.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+.chip.add {
+  border-style: dashed;
+  color: var(--ink-2);
+}
+.saved-view {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-3);
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+}
+.saved-view.changed {
+  background: color-mix(in srgb, #C98512 12%, #fff);
+  color: var(--ink);
+}

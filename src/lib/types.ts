@@ -265,6 +265,13 @@ export interface ReportGroup {
   label: string;
   categoryIds: ID[];
   color?: string;
+  /** The selection saved with the report. No end month = always up to the latest month. */
+  view?: ReportView;
+}
+export interface ReportView {
+  span: '6' | '12' | 'year';
+  accountId?: ID;
+  endMonth?: MonthKey;
 }
 
 export const TABLES = [

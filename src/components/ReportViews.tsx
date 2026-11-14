@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
-import type { ID, ReportGroup } from '../lib/types';
+import { useEffect, useMemo, useState } from 'react';
+import type { ID, ReportGroup, ReportView } from '../lib/types';
 import type { Model } from '../lib/calc/model';
 import { groupSeries, incomeOut, OTHER_INCOME, type ReportFilter } from '../lib/calc/reports';
 import { put } from '../lib/db';
-import { MONTHS, sum, uid, nowIso } from '../lib/util';
+import { MONTHS, cx, monthLabel, sum, uid, nowIso } from '../lib/util';
 import { AverageChart, IncomeOutChart } from './charts';
 import { Field, Icon, Modal, Money, useToast } from './ui';
 import { DrillMoney } from './DrillDown';
@@ -167,50 +167,95 @@ function ArrangeSources({ m, sources, onClose, onSave }: { m: Model; sources: Ar
 // ---------------------------------------------------------------------------------
 // Category groups
 
-export function GroupsView({ m, f }: { m: Model; f: ReportFilter }) {
+const viewText = (m: Model, v?: ReportView) =>
+  v
+    ? `${v.span === 'year' ? 'calendar year' : `${v.span} months`} · ${v.accountId ? m.accountById.get(v.accountId)?.name ?? 'one account' : 'all accounts'} · ${v.endMonth ? `up to ${monthLabel(v.endMonth)}` : 'up to the latest month'}`
+    : 'no selection saved';
+const sameView = (a?: ReportView, b?: ReportView) => !!a && !!b && a.span === b.span && (a.accountId ?? '') === (b.accountId ?? '') && (a.endMonth ?? '') === (b.endMonth ?? '');
+
+export function GroupsView({ m, f, view, applyView, lastMonth }: { m: Model; f: ReportFilter; view: ReportView; applyView: (v?: ReportView) => void; lastMonth: string }) {
   const toast = useToast();
   const groups = m.settings.reportGroups ?? [];
-  const [selId, setSelId] = useState<ID | null>(groups[0]?.id ?? null);
+  const [selId, setSelIdRaw] = useState<ID | null>(() => localStorage.getItem('pfm.reportGroup'));
   const sel = groups.find((g) => g.id === selId) ?? groups[0];
   const [editing, setEditing] = useState<ReportGroup | 'new' | null>(null);
   const data = useMemo(() => (sel ? groupSeries(m, f, sel.categoryIds) : null), [m, sel, f.from, f.to, f.accountIds?.join()]);
 
+  const choose = (g: ReportGroup) => {
+    setSelIdRaw(g.id);
+    try {
+      localStorage.setItem('pfm.reportGroup', g.id);
+    } catch {}
+    applyView(g.view);
+  };
+  // opening the tab brings back the selection saved with the report
+  useEffect(() => {
+    if (sel?.view) applyView(sel.view);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function saveGroups(next: ReportGroup[], label: string) {
     await put('settings', { ...m.settings, reportGroups: next, updatedAt: nowIso() }, label);
   }
+  const changed = sel && !sameView(sel.view, view);
 
   return (
     <>
-      <div className="row wrap" style={{ marginBottom: 'var(--s3)' }}>
-        {groups.length ? (
-          <select className="input" style={{ width: 'auto', minWidth: 220 }} aria-label="Category group" value={sel?.id ?? ''} onChange={(e) => setSelId(e.target.value)}>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.label}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        {sel ? (
-          <button className="btn" onClick={() => setEditing(sel)}>
-            <Icon name="edit" size={16} /> Edit
+      <div className="chips" role="tablist" aria-label="Saved category reports">
+        {groups.map((g) => (
+          <button key={g.id} role="tab" aria-selected={g.id === sel?.id} className={cx('chip', g.id === sel?.id && 'on')} onClick={() => choose(g)}>
+            <span className="gdot" style={{ ['--g' as any]: g.color ?? '#2F79B5' }} />
+            {g.label}
           </button>
-        ) : null}
-        <button className="btn primary" onClick={() => setEditing('new')}>
-          <Icon name="plus" size={16} /> New group
+        ))}
+        <button className="chip add" onClick={() => setEditing('new')}>
+          <Icon name="plus" size={14} /> New report
         </button>
       </div>
 
       {!sel || !data ? (
         <div className="empty">
           <h3>Put categories together</h3>
-          <p>Pick one or more categories, for example all phone bills from different budget sections, give them a label and see them over time with their average.</p>
-          <button className="btn primary" onClick={() => setEditing('new')}>New group</button>
+          <p>Pick one or more categories, for example all phone bills from different budget sections, give them a label and see them over time with their average. The period and account you choose are saved with it.</p>
+          <button className="btn primary" onClick={() => setEditing('new')}>New report</button>
         </div>
       ) : (
         <>
           <div className="panel">
-            <div className="row wrap" style={{ marginBottom: 6, gap: 24 }}>
+            <div className="row wrap" style={{ alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+              <div className="grow">
+                <h2 style={{ margin: 0 }}>{sel.label}</h2>
+                <div className="small muted">
+                  {monthLabel(f.from)} – {monthLabel(lastMonth)} · last reporting month {monthLabel(lastMonth)}
+                </div>
+              </div>
+              <button className="btn sm" onClick={() => setEditing(sel)}>
+                <Icon name="edit" size={14} /> Edit
+              </button>
+            </div>
+            <div className={cx('saved-view', changed && 'changed')}>
+              {changed ? (
+                <>
+                  <span>Selection changed. Saved: {viewText(m, sel.view)}.</span>
+                  <span className="spacer" />
+                  {sel.view ? <button className="btn sm ghost" onClick={() => applyView(sel.view)}>Back to saved</button> : null}
+                  <button
+                    className="btn sm primary"
+                    onClick={async () => {
+                      await saveGroups(groups.map((g) => (g.id === sel.id ? { ...g, view } : g)), 'Report selection');
+                      toast(`Selection saved with “${sel.label}”`);
+                    }}
+                  >
+                    Save selection
+                  </button>
+                </>
+              ) : (
+                <span>
+                  <Icon name="check" size={14} /> Saved selection: {viewText(m, sel.view)}
+                </span>
+              )}
+            </div>
+            <div className="row wrap" style={{ margin: '14px 0 6px', gap: 28 }}>
               <div>
                 <div className="k-label">{data.incomeOnly ? 'Received' : 'Spent'} in this period</div>
                 <div className="k-val"><Money v={data.total} /></div>
@@ -220,10 +265,10 @@ export function GroupsView({ m, f }: { m: Model; f: ReportFilter }) {
                 <div className="k-val"><Money v={data.avg} /></div>
               </div>
               <div className="small muted" style={{ alignSelf: 'flex-end' }}>
-                {sel.categoryIds.length} {sel.categoryIds.length === 1 ? 'category' : 'categories'} · average over {data.months.length} months, months without bookings count as 0
+                {sel.categoryIds.length} {sel.categoryIds.length === 1 ? 'category' : 'categories'} · average over the {data.filled} month{data.filled === 1 ? '' : 's'} with bookings
               </div>
             </div>
-            <AverageChart data={data.months.map((month, i) => ({ month, value: data.values[i] }))} name={sel.label} color={sel.color ?? '#2F79B5'} avg={data.avg} height={300} />
+            <AverageChart data={data.months.map((month, i) => ({ month, value: data.values[i] }))} name={`${sel.label} (to ${monthLabel(lastMonth)})`} color={sel.color ?? '#2F79B5'} avg={data.avg} height={300} />
           </div>
           <div className="panel flush section" style={{ marginTop: 'var(--s4)' }}>
             <div className="table-wrap">
@@ -239,6 +284,7 @@ export function GroupsView({ m, f }: { m: Model; f: ReportFilter }) {
                 <tbody>
                   {data.perCategory.map((r) => {
                     const c = m.categoryById.get(r.categoryId);
+                    const n = r.values.filter((v) => v !== 0).length;
                     return (
                       <tr key={r.categoryId}>
                         <td style={{ whiteSpace: 'nowrap' }}>
@@ -251,7 +297,7 @@ export function GroupsView({ m, f }: { m: Model; f: ReportFilter }) {
                           </td>
                         ))}
                         <td className="r"><b><Money v={sum(r.values)} compact /></b></td>
-                        <td className="r muted"><Money v={Math.round(sum(r.values) / data.months.length)} compact /></td>
+                        <td className="r muted" title={`Over ${n} month${n === 1 ? '' : 's'} with bookings`}><Money v={n ? Math.round(sum(r.values) / n) : 0} compact /></td>
                       </tr>
                     );
                   })}
@@ -278,17 +324,22 @@ export function GroupsView({ m, f }: { m: Model; f: ReportFilter }) {
           onDelete={
             editing !== 'new'
               ? async () => {
-                  await saveGroups(groups.filter((g) => g.id !== editing.id), 'Delete report group');
-                  setSelId(null);
+                  await saveGroups(groups.filter((g) => g.id !== editing.id), 'Delete report');
+                  setSelIdRaw(null);
                   setEditing(null);
-                  toast('Group deleted');
+                  toast('Report deleted');
                 }
               : undefined
           }
           onSave={async (g) => {
             const exists = groups.some((x) => x.id === g.id);
-            await saveGroups(exists ? groups.map((x) => (x.id === g.id ? g : x)) : [...groups, g], 'Report group');
-            setSelId(g.id);
+            // a new report keeps the selection you are looking at
+            const rec = exists ? g : { ...g, view };
+            await saveGroups(exists ? groups.map((x) => (x.id === g.id ? rec : x)) : [...groups, rec], 'Report');
+            setSelIdRaw(g.id);
+            try {
+              localStorage.setItem('pfm.reportGroup', g.id);
+            } catch {}
             setEditing(null);
             toast(`“${g.label}” saved`);
           }}
@@ -313,7 +364,7 @@ function GroupForm({ m, group, onClose, onSave, onDelete }: { m: Model; group: R
   const shownGroups = m.groups.filter((g) => g.kind !== 'transfer' && g.kind !== 'opening');
   return (
     <Modal
-      title={group ? `Edit “${group.label}”` : 'New category group'}
+      title={group ? `Edit “${group.label}”` : 'New category report'}
       onClose={onClose}
       wide
       footer={
@@ -325,8 +376,8 @@ function GroupForm({ m, group, onClose, onSave, onDelete }: { m: Model; group: R
           ) : null}
           <span className="spacer" />
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!label.trim() || !ids.size} onClick={() => onSave({ id: group?.id ?? uid(), label: label.trim(), categoryIds: [...ids], color })}>
-            Save group
+          <button className="btn primary" disabled={!label.trim() || !ids.size} onClick={() => onSave({ ...(group ?? {}), id: group?.id ?? uid(), label: label.trim(), categoryIds: [...ids], color })}>
+            Save report
           </button>
         </>
       }

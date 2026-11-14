@@ -167,11 +167,14 @@ export function groupSeries(m: Model, f: ReportFilter, categoryIds: string[]) {
     perCat.set(l.categoryId, arr);
   }
   const values = months.map((_, i) => sum([...perCat.values()].map((a) => a[i])));
-  const avg = months.length ? Math.round(sum(values) / months.length) : 0;
+  // months without any booking are left out of the average
+  const filled = months.filter((_, i) => [...perCat.values()].some((a) => a[i] !== 0)).length;
+  const avg = filled ? Math.round(sum(values) / filled) : 0;
   return {
     months,
     values,
     avg,
+    filled,
     total: sum(values),
     incomeOnly,
     perCategory: categoryIds.map((id) => ({ categoryId: id, values: perCat.get(id) ?? Array(months.length).fill(0) }))

@@ -57,7 +57,8 @@ describe('cash flow with reservations', () => {
   it('category groups add up their categories with the average over all months', () => {
     const g = groupSeries(m, { from: '2026-03', to: '2026-05' }, ['ph1', 'ph2']);
     expect(g.values).toEqual([6000, 4000, 0]);
-    expect(g.avg).toBe(Math.round(10000 / 3));
+    expect(g.avg).toBe(5000); // empty May is left out of the average
+    expect(g.filled).toBe(2);
     // a reservation group does not count the receiving side of the transfer
     expect(groupSeries(m, { from: '2026-03', to: '2026-03' }, ['tax']).values).toEqual([300000]);
     expect(groupSeries(m, { from: '2026-03', to: '2026-03' }, ['sal', 'bon']).values).toEqual([1200000]);
