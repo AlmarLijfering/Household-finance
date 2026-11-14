@@ -4,6 +4,8 @@ import { useModel } from '../lib/useModel';
 import { txOrder, txBase } from '../lib/calc/model';
 import { txMonth } from '../lib/calc/period';
 import { earmarkHints } from '../lib/calc/earmark';
+import { openArchiveView } from '../lib/archive';
+import { ARCHIVE_YEAR } from '../lib/db';
 import { commit } from '../lib/db';
 import { monthLabel } from '../lib/util';
 import { TxTable, matchesSearch } from '../components/TxTable';
@@ -69,6 +71,16 @@ export default function Transactions() {
           </button>
         </div>
       </div>
+      {m.closedYears.length && !ARCHIVE_YEAR ? (
+        <div className="notice info" style={{ marginBottom: 'var(--s3)' }}>
+          Transactions of closed years are in their archives:{' '}
+          {m.closedYears.map((c) => (
+            <button key={c.id} className="btn sm ghost" onClick={() => openArchiveView(c)}>
+              Open {c.year}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {hints.size ? (
         <div className="notice" style={{ marginBottom: 'var(--s3)' }}>
           <b>{hints.size} transaction{hints.size === 1 ? '' : 's'} may belong to the next budget month</b> — e.g. a salary advance received late in the month.{' '}

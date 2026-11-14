@@ -33,6 +33,7 @@ function SyncSettings() {
   const toast = useToast();
   const st = useSyncStatus();
   const [clientId, setClientId] = useState(G.clientId());
+  const [helper, setHelper] = useState(G.downloadHelper());
   const [who, setWho] = useState<string | null>(null);
   const [shared, setShared] = useState<G.Location[] | null>(null);
   const [link, setLink] = useState('');
@@ -108,6 +109,29 @@ function SyncSettings() {
         <div className="row wrap">
           <input className="input" style={{ flex: '1 1 320px' }} value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" aria-label="Client ID" />
           <button className="btn" onClick={() => { localStorage.setItem('pfm.clientId', clientId.trim()); location.reload(); }}>Save</button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h3>Download helper</h3>
+        <p className="small muted" style={{ margin: '4px 0 12px' }}>
+          OneDrive does not let browser apps read files back from its download server, so downloads go through a small free helper you run on Cloudflare (SETUP.md, “Download helper”). It only ever sees the encrypted file. Paste its address on every device.
+        </p>
+        <div className="row wrap">
+          <input className="input" style={{ flex: '1 1 320px' }} value={helper} onChange={(e) => setHelper(e.target.value)} placeholder="https://household-download.your-name.workers.dev" aria-label="Download helper address" />
+          <button
+            className="btn"
+            onClick={() => {
+              const v = helper.trim();
+              if (v && !/^https:\/\/[^\s]+$/.test(v)) return setErr('The helper address must start with https://');
+              if (v) localStorage.setItem('pfm.downloadHelper', v);
+              else localStorage.removeItem('pfm.downloadHelper');
+              setErr(null);
+              runSync();
+            }}
+          >
+            Save
+          </button>
         </div>
       </section>
 
@@ -301,7 +325,7 @@ function SyncSettings() {
             <h3>Check the write path</h3>
             <p className="small muted" style={{ margin: '4px 0 8px' }}>Writes a test file and then tries to overwrite it with an outdated version. Run it once from each of your accounts before relying on shared edits.</p>
             <button className="btn" disabled={!!busy} onClick={() => run('test', async () => setTestResult((await G.staleWriteTest(loc)).detail))}>Run stale-write test</button>
-            {testResult ? <div className={`notice ${/rejected/.test(testResult) ? 'good' : 'bad'}`} style={{ marginTop: 8 }}>{testResult}</div> : null}
+            {testResult ? <div className={`notice ${/^Passed/.test(testResult) ? 'good' : 'bad'}`} style={{ marginTop: 8 }}>{testResult}</div> : null}
           </section>
         </>
       ) : null}

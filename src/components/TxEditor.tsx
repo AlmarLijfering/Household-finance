@@ -4,11 +4,12 @@ import type { Split, Transaction, ID } from '../lib/types';
 import { useModel } from '../lib/useModel';
 import { nowIso, today, uid, fmtMoney, sum } from '../lib/util';
 import { AmountInput, Field, Icon, Modal, Seg, useToast, Money } from './ui';
-import { categoryAllowed, categoryActiveOn, type Model } from '../lib/calc/model';
+import { categoryAllowed, categoryActiveOn, moveTarget, type Model } from '../lib/calc/model';
 import { CategoryForm } from './CategoryForm';
 import { nextOccurrence } from '../lib/calc/recurring';
 import { BudgetDatePicker } from './BudgetDatePicker';
 import { lastBookableMonth, monthOfDate } from '../lib/calc/period';
+import { isClosedMonth } from '../lib/calc/yearclose';
 import { monthLabel, shiftMonth } from '../lib/util';
 
 export interface TxDraft {
@@ -96,9 +97,12 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
   const inSide = existing && pair ? (existing.amount < 0 ? pair : existing) : undefined;
 
   const defaultAcc = draft.accountId ?? m.settings.defaultAccountId ?? m.accounts.find((a) => !a.archived && a.type === 'current')?.id ?? m.accounts[0]?.id ?? '';
-  const [kind, setKind] = useState<'expense' | 'income' | 'transfer'>(existing ? (pair ? 'transfer' : existing.amount >= 0 ? 'income' : 'expense') : draft.kind ?? 'expense');
+  // a new booking on a reservation/savings category that moves money starts as a transfer to that account
+  const draftTarget = !existing && (draft.kind ?? 'expense') === 'expense' ? moveTarget(m, draft.categoryId) : undefined;
+  const [kind, setKind] = useState<'expense' | 'income' | 'transfer'>(existing ? (pair ? 'transfer' : existing.amount >= 0 ? 'income' : 'expense') : draftTarget ? 'transfer' : draft.kind ?? 'expense');
   const [accountId, setAccountId] = useState<ID>(outSide?.accountId ?? existing?.accountId ?? defaultAcc);
-  const [toAccountId, setToAccountId] = useState<ID>(inSide?.accountId ?? draft.toAccountId ?? m.accounts.find((a) => a.id !== defaultAcc && !a.archived)?.id ?? '');
+  const [toAccountId, setToAccountId] = useState<ID>(inSide?.accountId ?? draft.toAccountId ?? draftTarget?.id ?? m.accounts.find((a) => a.id !== defaultAcc && !a.archived)?.id ?? '');
+  const [autoTransfer, setAutoTransfer] = useState<string | null>(draftTarget ? draftTarget.name : null);
   const rec = draft.recurringId ? m.recurring.find((r) => r.id === draft.recurringId) : undefined;
   const [date, setDate] = useState(existing?.date ?? draft.date ?? today());
   const [amount, setAmount] = useState(Math.abs(existing?.amount ?? draft.amount ?? 0));
@@ -128,11 +132,27 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
   const effMonth = budgetMonth || dateMonth;
   const maxMonth = lastBookableMonth(m);
   const tooEarly = effMonth > maxMonth;
-  const monthOptions = [shiftMonth(dateMonth, -1), dateMonth, shiftMonth(dateMonth, 1)].filter((x) => x <= maxMonth);
+  const inClosed = isClosedMonth(m, effMonth);
+  const monthOptions = [shiftMonth(dateMonth, -1), dateMonth, shiftMonth(dateMonth, 1)].filter((x) => x <= maxMonth && !isClosedMonth(m, x));
   const endedCats = (splits.length ? splits.map((s) => s.categoryId) : [categoryId])
     .map((id) => (id ? m.categoryById.get(id) : undefined))
     .filter((c) => c && !categoryActiveOn(c, date)) as Array<{ name: string; activeUntil?: string }>;
-  const valid = !endedCats.length && !tooEarly && amount > 0 && accountId && (kind !== 'transfer' || (toAccountId && toAccountId !== accountId)) && (!splits.length || splitLeft === 0);
+  const valid = !endedCats.length && !tooEarly && !inClosed && amount > 0 && accountId && (kind !== 'transfer' || (toAccountId && toAccountId !== accountId)) && (!splits.length || splitLeft === 0);
+
+  function pickCategory(id: ID | null) {
+    setCategoryId(id);
+    const target = moveTarget(m, id);
+    if (target && target.id !== accountId && (kind === 'expense' || kind === 'transfer')) {
+      setKind('transfer');
+      setToAccountId(target.id);
+      setAutoTransfer(target.name);
+    } else if (autoTransfer && kind === 'transfer' && !target) {
+      // moved away from a category that made this a transfer: back to money out
+      setKind('expense');
+      setAutoTransfer(null);
+    }
+  }
+  const splitMoves = kind !== 'transfer' ? splits.map((x) => moveTarget(m, x.categoryId) && m.categoryById.get(x.categoryId!)?.name).filter(Boolean) as string[] : [];
 
   async function save() {
     const at = nowIso();
@@ -217,7 +237,10 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
         <Seg
           ariaLabel="Type"
           value={kind}
-          onChange={setKind}
+          onChange={(k) => {
+            setKind(k);
+            setAutoTransfer(null);
+          }}
           options={[
             ['expense', 'Money out'],
             ['income', 'Money in'],
@@ -268,10 +291,20 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
           )}
           {!splits.length ? (
             <Field label={kind === 'transfer' ? 'Budget category (optional)' : 'Category'} className="full" help={kind === 'transfer' ? 'Use a reservation category when this transfer sets money aside, so it counts in the budget.' : undefined}>
-              <CategorySelect m={m} value={categoryId} onChange={setCategoryId} filter={catFilter} accountId={accountId} date={date} />
+              <CategorySelect m={m} value={categoryId} onChange={pickCategory} filter={catFilter} accountId={accountId} date={date} />
             </Field>
           ) : null}
         </div>
+        {autoTransfer && kind === 'transfer' ? (
+          <div className="notice info small">
+            Saved as a transfer to <b>{autoTransfer}</b>: the money counts once as set aside, and {autoTransfer}’s balance goes up by the same amount.
+          </div>
+        ) : null}
+        {splitMoves.length ? (
+          <div className="notice small">
+            Split lines stay one booking, so {splitMoves.join(', ')} will not move money to a reserve account. Book {splitMoves.length === 1 ? 'it' : 'them'} separately to move the money.
+          </div>
+        ) : null}
 
         {kind !== 'transfer' ? (
           <div className="panel" style={{ background: 'var(--paper)' }}>
@@ -331,6 +364,11 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
         {endedCats.length ? (
           <div className="notice bad small">
             {endedCats.map((c) => `“${c.name}” ended on ${c.activeUntil}`).join(', ')} — pick another category or an earlier date.
+          </div>
+        ) : null}
+        {inClosed ? (
+          <div className="notice bad small">
+            {monthLabel(effMonth)} belongs to the closed year {effMonth.slice(0, 4)}. Pick a later date or budget month, or reopen the year under Years &amp; archive.
           </div>
         ) : null}
         {tooEarly ? (

@@ -2,6 +2,8 @@
 import { db, exportSnapshot, loadSnapshot, applyOps, getKV, setKV } from '../db';
 import type { Op, Snapshot } from '../types';
 import { decryptJson, encryptJson, type Envelope, type Keyring } from './crypto';
+import { buildModel, DEFAULT_SETTINGS } from '../calc/model';
+import { opTouchesClosed } from '../calc/yearclose';
 import { download, upload, listChildren, PreconditionFailed, AuthRequired, ensureSubfolders, type Location, type DriveItem } from './graph';
 
 export const SNAPSHOT_PATH = 'Data/household.json';
@@ -46,6 +48,7 @@ export function subscribe(l: Listener) {
 // ---- key held in memory only after unlock (and as a non-extractable CryptoKey in IndexedDB) ----
 let dataKey: CryptoKey | null = null;
 let keyring: Keyring | null = null;
+export const getKeys = () => ({ dataKey, keyring });
 export function setKey(k: CryptoKey | null, ring: Keyring | null) {
   dataKey = k;
   keyring = ring;
@@ -89,6 +92,8 @@ async function readRemote(loc: Location): Promise<{ etag: string; snapshot: Snap
 }
 
 let running: Promise<void> | null = null;
+/** Edits dropped because their year was closed on another device (shown in Years & archive). */
+export let droppedForClosed = 0;
 let again = false;
 
 /** Sync now. Concurrent calls coalesce into one follow-up run. */
@@ -129,7 +134,16 @@ async function syncOnce(opts: { publish?: () => Promise<void> }) {
         // Someone else saved. Load their snapshot, then replay our retained edits on top.
         changedRemotely = true;
         const already = new Set(remote.snapshot.appliedOps);
-        const mine = pending.filter((o) => !already.has(o.opId));
+        let mine = pending.filter((o) => !already.has(o.opId));
+        // edits made on this device to a year that was closed elsewhere in the meantime are not applied
+        const remoteModel = buildModel({ ...(remote.snapshot.data as any), settings: remote.snapshot.data.settings?.[0] ?? DEFAULT_SETTINGS, closedYears: remote.snapshot.data.closedYears ?? [] });
+        const stale = mine.filter((o) => opTouchesClosed(remoteModel, o));
+        if (stale.length) {
+          await db.pending.bulkDelete(stale.map((o) => o.opId));
+          mine = mine.filter((o) => !stale.includes(o));
+          emit({ message: `${stale.length} change${stale.length === 1 ? '' : 's'} to a closed year ${stale.length === 1 ? 'was' : 'were'} not applied` });
+          droppedForClosed += stale.length;
+        }
         const conflicts = findConflicts(remote.snapshot, mine, state.lastSyncAt);
         await loadSnapshot(remote.snapshot);
         await applyOps(mine);

@@ -100,13 +100,13 @@ export async function buildReportWorkbook(m: Model, o: ReportOptions): Promise<A
 
   // --- Cash flow monthly
   const c1 = wb.addWorksheet('Cash flow by month');
-  header(c1, 'Cash flow by month', `Income and spending exclude transfers between your own accounts. ${period}.`);
+  header(c1, 'Cash flow by month', `Left = income − reservations & savings − spending. Costs paid from reserves are shown apart: they were counted when the money was set aside. Transfers between your own accounts are left out. ${period}.`);
   addTable(
     c1,
     'CashFlowMonthly',
     'A4',
-    [{ name: 'Month', width: 14 }, { name: 'Year' }, { name: 'Income', money: true, total: true }, { name: 'Spending', money: true, total: true }, { name: 'Net', money: true, total: true }, { name: 'Into reserves', money: true, total: true }],
-    cf.map((r) => [mLabel(r.month), Number(r.month.slice(0, 4)), v(r.income), v(r.spending), v(r.net), v(r.reserved)])
+    [{ name: 'Month', width: 14 }, { name: 'Year' }, { name: 'Income', money: true, total: true }, { name: 'Reservations & savings', money: true, total: true, width: 22 }, { name: 'Spending', money: true, total: true }, { name: 'Left', money: true, total: true }, { name: 'Paid from reserves', money: true, total: true, width: 20 }],
+    cf.map((r) => [mLabel(r.month), Number(r.month.slice(0, 4)), v(r.income), v(r.reserved), v(r.spending), v(r.net), v(r.fromReserves)])
   );
 
   // --- Cash flow annual
@@ -117,11 +117,11 @@ export async function buildReportWorkbook(m: Model, o: ReportOptions): Promise<A
     c2,
     'CashFlowAnnual',
     'A4',
-    [{ name: 'Year' }, { name: 'Income', money: true, total: true }, { name: 'Spending', money: true, total: true }, { name: 'Net', money: true, total: true }, { name: 'Into reserves', money: true, total: true }],
+    [{ name: 'Year' }, { name: 'Income', money: true, total: true }, { name: 'Reservations & savings', money: true, total: true, width: 22 }, { name: 'Spending', money: true, total: true }, { name: 'Left', money: true, total: true }, { name: 'Paid from reserves', money: true, total: true, width: 20 }],
     years.map((y) => {
       const rs = cf.filter((r) => r.month.startsWith(y));
-      const t = (k: 'income' | 'spending' | 'net' | 'reserved') => v(rs.reduce((a, r) => a + r[k], 0));
-      return [Number(y), t('income'), t('spending'), t('net'), t('reserved')];
+      const t = (k: 'income' | 'spending' | 'net' | 'reserved' | 'fromReserves') => v(rs.reduce((a, r) => a + r[k], 0));
+      return [Number(y), t('income'), t('reserved'), t('spending'), t('net'), t('fromReserves')];
     })
   );
 

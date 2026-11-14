@@ -1,3 +1,4 @@
+import { isClosedMonth } from './calc/yearclose';
 // Mass update of transactions. The type (money in, money out, transfer) never changes.
 import type { ID, Transaction } from './types';
 import { kindOf, categoryActiveOn, type Model } from './calc/model';
@@ -73,6 +74,7 @@ export function planBulk(m: Model, ids: ID[], c: BulkChanges): BulkResult {
     if (c.date !== undefined && c.date !== self.date) {
       const curCat = items.map((x) => (x.categoryId ? m.categoryById.get(x.categoryId) : undefined)).find((x) => x && !categoryActiveOn(x, c.date!));
       if (c.date > maxDate) skip('Date is after the last day open for booking');
+      else if (!items.some((x) => x.budgetMonth) && isClosedMonth(m, monthOfDate(m, c.date))) skip('The new date is in a closed year');
       else if (curCat) skip(`Its category “${curCat.name}” ended before the new date`);
       else {
         for (const x of items) x.date = c.date;
@@ -83,6 +85,7 @@ export function planBulk(m: Model, ids: ID[], c: BulkChanges): BulkResult {
     if (c.budgetMonth !== undefined) {
       const want = c.budgetMonth;
       if (want && want > maxMonth) skip('Budget month is not open for booking yet');
+      else if (want && isClosedMonth(m, want)) skip('That budget month is in a closed year');
       else
         for (const x of items) {
           const v = want && want !== monthOfDate(m, x.date) ? want : undefined;

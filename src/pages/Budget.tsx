@@ -12,11 +12,15 @@ import { DrillMoney, type DrillFilter } from '../components/DrillDown';
 import { CategoryForm } from '../components/CategoryForm';
 import { GroupDot, groupVar } from '../components/Group';
 import type { Model } from '../lib/calc/model';
+import { closedMonthLines, closedSummary } from '../lib/calc/yearclose';
+import { openArchiveView } from '../lib/archive';
+import { ARCHIVE_YEAR } from '../lib/db';
 
 export default function Budget() {
   const m = useModel();
   const [view, setView] = useState<'month' | 'year'>('month');
-  const [month, setMonth] = useState(currentBudgetMonth(m));
+  // a closed year opens on its last month with a budget
+  const [month, setMonth] = useState(() => (ARCHIVE_YEAR ? [...m.budgetLines].map((b) => b.month).sort().pop() ?? `${ARCHIVE_YEAR}-12` : currentBudgetMonth(m)));
   return (
     <div>
       <div className="page-head">
@@ -26,8 +30,39 @@ export default function Budget() {
         </div>
         <Seg value={view} onChange={setView} options={[['month', 'Month'], ['year', 'Year']]} ariaLabel="View" />
       </div>
-      {view === 'month' ? <MonthView m={m} month={month} setMonth={setMonth} /> : <YearView m={m} year={Number(month.slice(0, 4))} setYear={(y) => setMonth(`${y}${month.slice(4)}`)} />}
+      {view === 'month' && (closedSummary(m, month) || (ARCHIVE_YEAR && Number(month.slice(0, 4)) !== ARCHIVE_YEAR)) ? (
+        <ClosedMonth m={m} month={month} setMonth={setMonth} />
+      ) : view === 'month' ? (
+        <MonthView m={m} month={month} setMonth={setMonth} />
+      ) : <YearView m={m} year={Number(month.slice(0, 4))} setYear={(y) => setMonth(`${y}${month.slice(4)}`)} />}
     </div>
+  );
+}
+
+/** A month of a closed year: its details are in the archive. */
+function ClosedMonth({ m, month, setMonth }: { m: Model; month: string; setMonth: (s: string) => void }) {
+  const c = closedSummary(m, month);
+  const toast = useToast();
+  return (
+    <>
+      <div className="row wrap" style={{ justifyContent: 'space-between', marginBottom: 'var(--s4)' }}>
+        <MonthSwitch month={month} setMonth={setMonth} now={currentBudgetMonth(m)} />
+      </div>
+      {ARCHIVE_YEAR || !c ? (
+        <div className="empty">
+          <h3>{monthLabel(month)} is not part of the {ARCHIVE_YEAR} archive</h3>
+          <p>This archive only holds {ARCHIVE_YEAR}.</p>
+        </div>
+      ) : (
+        <div className="empty">
+          <h3>{monthLabel(month)} is in the closed year {c.year}</h3>
+          <p>Its budget and transactions are in the {c.year} archive. The year view still shows its monthly totals.</p>
+          <button className="btn primary" onClick={() => openArchiveView(c).catch((e) => toast(String(e?.message ?? e)))}>
+            <Icon name="archive" size={16} /> Open {c.year} read-only
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -58,7 +93,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
   const prevWithLines = useMemo(() => {
     for (let i = 1; i <= 24; i++) {
       const p = shiftMonth(month, -i);
-      if (m.budgetLines.some((b) => b.month === p)) return p;
+      if (m.budgetLines.some((b) => b.month === p) || closedMonthLines(m, p).length) return p;
     }
     return null;
   }, [m, month]);
@@ -129,22 +164,28 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
 
       {!mb.lines.length ? (
         <div className="empty">
-          <h3>No budget for {monthLabel(month)} yet</h3>
-          <p>
-            {prevWithLines
-              ? `Start from ${monthLabel(prevWithLines)}: every line is copied with its baseline as the new estimate, nothing closed.`
-              : 'Add lines one by one, or import the budget sheets from your Excel workbook.'}
-          </p>
-          <div className="actions">
-            {prevWithLines ? (
-              <button className="btn primary" onClick={() => copyFrom(prevWithLines)}>
-                Copy from {monthLabel(prevWithLines)}
-              </button>
-            ) : null}
-            <button className="btn" onClick={() => setAdding({ month })}>
-              Add a line
-            </button>
-          </div>
+          <h3>No budget for {monthLabel(month)}{ARCHIVE_YEAR ? '' : ' yet'}</h3>
+          {ARCHIVE_YEAR ? (
+            <p>This month had no budget lines when {ARCHIVE_YEAR} was closed.</p>
+          ) : (
+            <>
+              <p>
+                {prevWithLines
+                  ? `Start from ${monthLabel(prevWithLines)}: every line is copied with its baseline as the new estimate, nothing closed.`
+                  : 'Add lines one by one, or import the budget sheets from your Excel workbook.'}
+              </p>
+              <div className="actions">
+                {prevWithLines ? (
+                  <button className="btn primary" onClick={() => copyFrom(prevWithLines)}>
+                    Copy from {monthLabel(prevWithLines)}
+                  </button>
+                ) : null}
+                <button className="btn" onClick={() => setAdding({ month })}>
+                  Add a line
+                </button>
+              </div>
+            </>
+          )}
           {mb.unbudgeted.length ? <p className="small" style={{ marginTop: 12 }}>{mb.unbudgeted.length} categories already have transactions this month.</p> : null}
         </div>
       ) : (
@@ -604,6 +645,12 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
         </div>
         <Seg value={show} onChange={setShow} options={[['actual', 'Actual'], ['estimate', 'Estimate'], ['diff', 'Estimate − actual']]} />
       </div>
+      {grid.closed ? (
+        <div className="notice info" style={{ marginBottom: 'var(--s4)' }}>
+          {year} is closed: these are its monthly totals.{' '}
+          <button className="btn sm ghost" onClick={() => { const c = m.closedYears.find((x) => x.year === year); if (c) openArchiveView(c); }}>Open {year} read-only</button>
+        </div>
+      ) : null}
       {!cats.length ? (
         <div className="empty">
           <h3>Nothing budgeted or spent in {year}</h3>
@@ -636,7 +683,7 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
                       {MONTHS.map((_, i) => (
                         <td key={i} className="r small">
                           {val(c.id, i) ? (
-                            show === 'actual' ? (
+                            show === 'actual' && !grid.closed ? (
                               <DrillMoney v={val(c.id, i)} compact f={{ title: `${c.name} · ${MONTHS[i]} ${year}`, from: grid.months[i], categoryIds: [c.id] }} />
                             ) : (
                               <Money v={val(c.id, i)} compact />
@@ -649,9 +696,11 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
                       <td className="r"><b><Money v={sum(MONTHS.map((_, i) => val(c.id, i)))} compact /></b></td>
                       <td className="r muted"><Money v={sum(e.estimate)} compact /></td>
                       <td>
-                        <button className="btn sm ghost" onClick={() => setSpread(c.id)} title="Set an annual budget and spread it over the months">
-                          Annual…
-                        </button>
+                        {grid.closed ? null : (
+                          <button className="btn sm ghost" onClick={() => setSpread(c.id)} title="Set an annual budget and spread it over the months">
+                            Annual…
+                          </button>
+                        )}
                       </td>
                     </FragmentRow>
                   );

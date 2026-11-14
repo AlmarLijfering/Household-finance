@@ -9,15 +9,16 @@ import { useSyncStatus, runSync } from '../lib/useSync';
 import { isReserve } from '../lib/calc/model';
 import { DrillMoney } from '../components/DrillDown';
 import { CatChip } from '../components/Group';
+import { GroupsView, IncomeOutView } from '../components/ReportViews';
 
-type Tab = 'cash' | 'spend' | 'income' | 'balances';
+type Tab = 'flow' | 'cash' | 'spend' | 'income' | 'groups' | 'balances';
 const ml = (m: string) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(2, 4)}`;
 
 export default function Reports() {
   const m = useModel();
   const toast = useToast();
   const sync = useSyncStatus();
-  const [tab, setTab] = useState<Tab>('cash');
+  const [tab, setTab] = useState<Tab>('flow');
   const [to, setTo] = useState(currentBudgetMonth(m));
   const [span, setSpan] = useState<'6' | '12' | 'year'>('12');
   const [acc, setAcc] = useState('all');
@@ -114,7 +115,9 @@ export default function Reports() {
         </div>
       </div>
       <div className="row wrap" style={{ marginBottom: 'var(--s4)' }}>
-        <Seg value={tab} onChange={setTab} options={[['cash', 'Cash flow'], ['spend', 'Spending'], ['income', 'Income'], ['balances', 'Balances']]} />
+        <div className="scroll-x">
+          <Seg value={tab} onChange={setTab} options={[['flow', 'Income & spending'], ['cash', 'Cash flow'], ['spend', 'Spending'], ['income', 'Income'], ['groups', 'Category groups'], ['balances', 'Balances']]} />
+        </div>
         <span className="spacer" />
         <select className="input" style={{ width: 'auto' }} value={acc} onChange={(e) => setAcc(e.target.value)} aria-label="Account">
           <option value="all">All accounts</option>
@@ -124,26 +127,32 @@ export default function Reports() {
         <input className="input" type="month" style={{ width: 'auto' }} value={to} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="Ending month" />
       </div>
 
+      {tab === 'flow' ? <IncomeOutView m={m} f={f} /> : null}
+      {tab === 'groups' ? <GroupsView m={m} f={f} /> : null}
       {tab === 'cash' ? (
         <>
-          <div className="panel"><CashFlowChart data={cf} height={280} /></div>
+          <div className="panel">
+            <CashFlowChart data={cf} height={280} />
+            <p className="small muted" style={{ marginTop: 6 }}>Left = income − reservations &amp; savings − spending. Costs paid from reserves are shown apart: that money was already counted when it was set aside.</p>
+          </div>
           <div className="panel flush section" style={{ marginTop: 'var(--s4)' }}>
             <div className="table-wrap">
               <table className="t">
-                <thead><tr><th>Month</th><th className="r">Income</th><th className="r">Spending</th><th className="r">Net</th><th className="r">Into reserves</th></tr></thead>
+                <thead><tr><th>Month</th><th className="r">Income</th><th className="r">Reservations &amp; savings</th><th className="r">Spending</th><th className="r">Left</th><th className="r">Paid from reserves</th></tr></thead>
                 <tbody>
                   {cf.map((r) => (
                     <tr key={r.month}>
                       <td>{ml(r.month)}</td>
                       <td className="r"><DrillMoney v={r.income} f={{ title: `Income · ${ml(r.month)}`, from: r.month, type: 'income', accountIds: f.accountIds }} /></td>
+                      <td className="r"><DrillMoney v={r.reserved} f={{ title: `Reservations & savings · ${ml(r.month)}`, from: r.month, type: 'reserved', accountIds: f.accountIds }} /></td>
                       <td className="r"><DrillMoney v={r.spending} f={{ title: `Spending · ${ml(r.month)}`, from: r.month, type: 'spending', accountIds: f.accountIds }} /></td>
                       <td className="r"><Money v={r.net} tone /></td>
-                      <td className="r"><DrillMoney v={r.reserved} f={{ title: `Into reserves · ${ml(r.month)}`, from: r.month, type: 'reserved', accountIds: f.accountIds }} /></td>
+                      <td className="r muted"><DrillMoney v={r.fromReserves} f={{ title: `Paid from reserves · ${ml(r.month)}`, from: r.month, type: 'fromReserves', accountIds: f.accountIds }} /></td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr><td>Total</td><td className="r"><Money v={sum(cf.map((r) => r.income))} /></td><td className="r"><Money v={sum(cf.map((r) => r.spending))} /></td><td className="r"><Money v={sum(cf.map((r) => r.net))} tone /></td><td className="r"><Money v={sum(cf.map((r) => r.reserved))} /></td></tr>
+                  <tr><td>Total</td><td className="r"><Money v={sum(cf.map((r) => r.income))} /></td><td className="r"><Money v={sum(cf.map((r) => r.reserved))} /></td><td className="r"><Money v={sum(cf.map((r) => r.spending))} /></td><td className="r"><Money v={sum(cf.map((r) => r.net))} tone /></td><td className="r"><Money v={sum(cf.map((r) => r.fromReserves))} /></td></tr>
                 </tfoot>
               </table>
             </div>

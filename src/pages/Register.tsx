@@ -20,6 +20,7 @@ export default function Register() {
   const { id } = useParams();
   const m = useModel();
   const open = useTxEditor();
+  const toast = useToast();
   const [q, setQ] = useState('');
   const [bankEdit, setBankEdit] = useState(false);
   const [edit, setEdit] = useState(false);
@@ -96,6 +97,18 @@ export default function Register() {
           >
             Add a transaction for <Money v={Math.abs(diff)} cur={acc.currency} />
           </button>
+          <button
+            className="btn sm"
+            style={{ marginLeft: 6 }}
+            title="Use when the app is right, e.g. the bank still has to process a payment"
+            onClick={async () => {
+              const now = accountBalance(m, acc.id, today());
+              await put('accounts', { ...acc, statementBalance: now, statementDate: today() }, 'Bank balance set to app balance');
+              toast('Bank balance set to the app’s current balance');
+            }}
+          >
+            Set bank balance to the app’s <Money v={accountBalance(m, acc.id, today())} cur={acc.currency} />
+          </button>
         </div>
       ) : null}
 
@@ -149,8 +162,13 @@ export function BankBalanceForm({ account, onClose }: { account: Account; onClos
     >
       <p className="muted small" style={{ marginBottom: 12 }}>Type what your bank app or statement shows. The app compares it with its own balance on the same date and shows any difference; nothing is changed automatically.</p>
       <div className="form-grid">
-        <Field label="Balance at the bank">
+        <Field label="Balance at the bank" help={bal !== appOnDate ? undefined : 'Same as the app'}>
           <AmountInput value={bal} onChange={setBal} autoFocus />
+          {bal !== appOnDate ? (
+            <button type="button" className="btn sm ghost" style={{ marginTop: 6 }} onClick={() => setBal(appOnDate)}>
+              Use the app’s balance (<Money v={appOnDate} cur={account.currency} />)
+            </button>
+          ) : null}
         </Field>
         <Field label="On date">
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />

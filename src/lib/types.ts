@@ -50,6 +50,8 @@ export interface Category {
   accountTypes?: AccountType[];
   accountIds?: ID[];
   activeUntil?: ISODate; // last day it can be used; later bookings and budget months leave it out
+  /** Reservations and savings: money booked on this category moves to this account (saved as a transfer). */
+  moveToAccountId?: ID;
   archived?: boolean;
   sort: number;
   updatedAt: string;
@@ -209,6 +211,40 @@ export interface MonthPlan {
   updatedAt: string;
 }
 
+/**
+ * A closed year. Its detailed records live in an encrypted archive file
+ * (OneDrive: Archive/household-YYYY.json). The live data keeps this small summary
+ * so balances, rollovers and reports keep working.
+ */
+export interface ClosedYear {
+  id: string; // 'YYYY'
+  year: number;
+  firstMonth: MonthKey;
+  lastMonth: MonthKey;
+  closedAt: string;
+  closedBy: string;
+  storage: 'onedrive' | 'device';
+  fileName: string; // file name in the Archive folder (or the local key for 'device')
+  counts: Record<string, number>;
+  /** Native-currency sum of archived transactions per account, added to its opening balance. */
+  moved: Record<ID, number>;
+  /** Opening balance and date of each changed account before closing (used when reopening). */
+  openingBefore: Record<ID, { balance: number; date: ISODate }>;
+  /** Monthly totals per account and category, base currency: [month, accountId, categoryId|null, amount, isTransfer 0/1]. */
+  lines: Array<[MonthKey, ID, ID | null, number, 0 | 1]>;
+  /** Budget per month and category, base currency: [month, categoryId, estimate (incl. rollover), actual]. */
+  budget: Array<[MonthKey, ID, number, number]>;
+  /** Native balance per account at the end of each budget month: [month, accountId, balance]. */
+  balances: Array<[MonthKey, ID, number]>;
+  /** Rollover left in the last closed month, per category (feeds the first open month). */
+  carryOut: Record<ID, number>;
+  /** The last closed month's budget lines, so the first open month can still copy them. */
+  lastMonthLines: BudgetLine[];
+  /** Import batches with rows in this year: they can no longer be undone. */
+  importBatchIds: ID[];
+  updatedAt: string;
+}
+
 export interface Settings {
   id: 'settings';
   householdName: string;
@@ -217,7 +253,18 @@ export interface Settings {
   weekStartsOn: 1 | 0;
   budgetPeriods?: 'weeks' | 'calendar'; // default 'weeks': months in whole weeks
   defaultAccountId?: ID;
+  /** Income & spending report: order (bottom first) and colour of each income source. */
+  incomeReport?: { order: string[]; colors: Record<string, string> };
+  /** Your own category groups for the "Category groups" report. */
+  reportGroups?: ReportGroup[];
   updatedAt: string;
+}
+
+export interface ReportGroup {
+  id: ID;
+  label: string;
+  categoryIds: ID[];
+  color?: string;
 }
 
 export const TABLES = [
@@ -235,6 +282,7 @@ export const TABLES = [
   'reconciliations',
   'importBatches',
   'monthPlans',
+  'closedYears',
   'settings'
 ] as const;
 export type TableName = (typeof TABLES)[number];
@@ -254,6 +302,7 @@ export interface TableTypes {
   reconciliations: Reconciliation;
   importBatches: ImportBatch;
   monthPlans: MonthPlan;
+  closedYears: ClosedYear;
   settings: Settings;
 }
 

@@ -2017,3 +2017,126 @@ table.t.bt tr.bsub .money {
     padding: 8px 0 6px;
   }
 }
+
+/* ---------- years & archive ---------- */
+.plain-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.plain-list li + li {
+  margin-top: 4px;
+}
+.year-tag {
+  flex: none;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+  min-width: 64px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.year-tag.closed {
+  color: var(--ink-3);
+}
+.archive-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #3a2a4a;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  margin-bottom: var(--s4);
+  font-size: 14px;
+}
+.archive-bar b {
+  font-family: var(--display);
+  font-size: 15px;
+}
+.archive-bar .btn {
+  margin-left: auto;
+}
+body.archive-mode .rail .btn.good,
+body.archive-mode .tabbar .add {
+  display: none;
+}
+.archive-bar .btn,
+.archive-bar .btn:hover {
+  background: #fff;
+  color: var(--ink);
+  border-color: #fff;
+}
+@media (max-width: 860px) {
+  .list-row.years-row {
+    flex-wrap: wrap;
+  }
+  .list-row.years-row .grow {
+    flex: 1 1 calc(100% - 90px);
+    min-width: 0;
+  }
+  .list-row.years-row > .btn,
+  .list-row.years-row > .row {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+}
+.list-row.years-row .title,
+.list-row.years-row .meta {
+  white-space: normal;
+}
+
+/* ---------- report pickers ---------- */
+.pick-list {
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.pick-head {
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  padding: 7px 12px;
+  font-weight: 650;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  min-height: 40px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+.pick-row:hover {
+  background: var(--sunk);
+}
+.pick-row .code-tag {
+  margin-left: auto;
+}
+.pick-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--moss);
+}
+.scroll-x {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scroll-x .seg {
+  flex-wrap: nowrap;
+}
+.scroll-x .seg button {
+  white-space: nowrap;
+}

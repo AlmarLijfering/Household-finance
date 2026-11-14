@@ -43,6 +43,8 @@ To turn on sync and sharing, follow **SETUP.md**. That covers the Microsoft app 
 | Forecast | Month-end balance projection for 6–24 months, everyday money or everything, with scenarios (income/spending % changes plus extra one-offs and recurring items) and planned entries kept apart from actuals. | budget 2027 workbook |
 | Reports | Cash flow (monthly/annual), income and spending by category, account balances, budget vs actual, transaction detail. Download as Excel; published automatically to OneDrive after every sync. | Expenses per Month, Total_* tables |
 | Import | Preview, mapping, validation, duplicate detection, reconciliation against the workbook's own balances, commit, undo. Repeatable. | — |
+| Years & archive | Close a finished year: everything that counts for its budget months moves into its own encrypted archive on OneDrive, balances and report totals carry on. Open a closed year read-only (the whole app shows just that year, with Excel download); reopen the last closed year if needed. | Yearly workbooks (one file per year) |
+| Reports: Income & spending, Category groups | Income stacked by source (your order and colours) against a line of spending plus reservations & savings; your own labelled groups of categories over time with their average. | Excel charts |
 
 Stocks, investment funds and portfolios are deliberately out of scope. The importer skips those sheets.
 

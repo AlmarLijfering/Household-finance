@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { openArchiveView } from '../lib/archive';
 import { useModel } from '../lib/useModel';
 import { useMemo } from 'react';
 import { yearlyPlan, yearlyCandidates } from '../lib/calc/yearly';
@@ -36,6 +37,7 @@ export default function Yearly() {
   const [year, setYear] = useState(Number(today().slice(0, 4)));
   const [edit, setEdit] = useState<YearlyItem | 'new' | null>(null);
   const [fundEdit, setFundEdit] = useState(false);
+  const closedY = m.closedYears.find((c) => c.year === year);
   const toast = useToast();
   const p = yearlyPlan(m, year, today());
   const withoutCat = p.rows.filter((r) => !r.item.categoryId);
@@ -69,9 +71,15 @@ export default function Yearly() {
             </button>
           ) : null}
           <button className="btn" onClick={() => setFundEdit(true)}>Fund settings</button>
-          <button className="btn primary" onClick={() => setEdit('new')}><Icon name="plus" size={16} /> Add item</button>
+          <button className="btn primary" disabled={!!closedY} onClick={() => setEdit('new')}><Icon name="plus" size={16} /> Add item</button>
         </div>
       </div>
+      {closedY ? (
+        <div className="notice info" style={{ marginBottom: 'var(--s4)' }}>
+          {year} is closed. Its yearly expenses are in the {year} archive.{' '}
+          <button className="btn sm ghost" onClick={() => openArchiveView(closedY)}>Open {year} read-only</button>
+        </div>
+      ) : null}
 
       <div className="kpis">
         <div>

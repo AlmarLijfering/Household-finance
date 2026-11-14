@@ -1,3 +1,4 @@
+import { closedCarry, closedMonthLines } from './yearclose';
 import type { BudgetLine, GroupKind, ID, MonthKey } from '../types';
 import { lines, kindOf, isSpendable, monthBalance, bookedInMonth, isEverydayCategory, categoryActiveOn, type Model, type Line } from './model';
 import { shiftMonth, sum } from '../util';
@@ -215,6 +216,12 @@ function carryFor(m: Model, line: BudgetLine, month: MonthKey, depth: number): n
   const kind = kindOf(m, line.categoryId);
   if (kind === 'income') return 0;
   const prev = shiftMonth(month, -1);
+  const fromClosed = closedCarry(m, prev, line.categoryId);
+  if (fromClosed !== null) {
+    if (fromClosed > 0 && (mode === 'carry-remaining' || mode === 'carry-both')) return fromClosed;
+    if (fromClosed < 0 && (mode === 'carry-overspend' || mode === 'carry-both')) return fromClosed;
+    return 0;
+  }
   if (!m.budgetLines.some((b) => b.month === prev && b.categoryId === line.categoryId)) return 0;
   const pm = computeMonth(m, prev, depth + 1);
   const prevLines = pm.lines.filter((r) => r.line.categoryId === line.categoryId && !r.line.week);
@@ -228,7 +235,7 @@ function carryFor(m: Model, line: BudgetLine, month: MonthKey, depth: number): n
 /** Copy a month's lines into another month (baseline = previous estimate, nothing closed). */
 export function linesForCopy(m: Model, from: MonthKey, to: MonthKey, newId: () => string): BudgetLine[] {
   const startTo = periodStart(m, to);
-  return m.budgetLines
+  return [...m.budgetLines, ...closedMonthLines(m, from)]
     .filter((b) => b.month === from && categoryActiveOn(m.categoryById.get(b.categoryId), startTo))
     .map((b) => ({ ...b, id: newId(), month: to, baseline: b.baseline, estimate: b.baseline, closed: false, updatedAt: '' }));
 }
@@ -236,6 +243,20 @@ export function linesForCopy(m: Model, from: MonthKey, to: MonthKey, newId: () =
 /** Annual view: estimate and actual per category per month. */
 export function annualGrid(m: Model, year: number) {
   const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+  const closed = m.closedYears.find((c) => c.year === year);
+  if (closed) {
+    // a closed year: monthly totals from its summary
+    const cats = new Map<ID, { estimate: number[]; actual: number[] }>();
+    for (const [month, cat, est, act] of closed.budget) {
+      const i = months.indexOf(month);
+      if (i < 0) continue;
+      const e = cats.get(cat) ?? { estimate: Array(12).fill(0), actual: Array(12).fill(0) };
+      e.estimate[i] += est;
+      e.actual[i] += act;
+      cats.set(cat, e);
+    }
+    return { months, computed: [] as MonthBudget[], cats, closed: true };
+  }
   const computed = months.map((mm) => computeMonth(m, mm));
   const cats = new Map<ID, { estimate: number[]; actual: number[] }>();
   computed.forEach((mb, i) => {
@@ -251,5 +272,5 @@ export function annualGrid(m: Model, year: number) {
       cats.set(u.categoryId, e);
     }
   });
-  return { months, computed, cats };
+  return { months, computed, cats, closed: false };
 }

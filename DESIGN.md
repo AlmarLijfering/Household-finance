@@ -94,3 +94,30 @@ These require your two real Microsoft accounts and devices; see SETUP.md §6 for
 - **Lists.** Transactions get one heading per day (with budget month and week) instead of a date on every row, and a category marker per row. Wide month grids keep the first column in view and shade alternate rows.
 - **Phones.** Budget lines and transactions turn into stacked rows with small labels; extra transaction filters sit behind "More filters".
 - **Contrast and size.** Secondary text is #5B6772 (above 4.5:1 on white and on the page background); the smallest text is 11.5px for codes, 12.5px for meta lines; touch targets are at least 44px on lists.
+
+## Closing a year
+
+- **What decides the year:** the budget month, never the date. A transfer moves with its outgoing side, so both sides always stay together.
+- **What moves:** transactions, budget lines, month settings, yearly expenses and the yearly fund of that year; planned entries and old reconciliations dated up to the end of its December budget month.
+- **What stays:** accounts, categories, bills and income, scenarios and exchange rates. Each account's opening balance takes over the archived money (and its opening date moves to the first open day), so every balance stays the same.
+- **Summary kept live (`closedYears`):** monthly totals per account and category, budget per category and month, month-end balances, the rollover left in December and December's lines (so January can still copy them). Reports, the year view, balance history and rollover use these.
+- **Archive file:** `Archive/household-YYYY.json` on OneDrive, encrypted with the household key (old keys stay in the keyring after a rotation, so archives remain readable). It has the snapshot's shape and includes copies of accounts (as they were before closing), categories and earlier summaries, so the read-only viewer is simply the app on that data (`?archive=YYYY`, separate local database, every save refused).
+- **Order and safety:** years close oldest first, only after their December budget month has ended, and only when this device has nothing unsynced. The archive is written first (`If-None-Match: *`, size checked); only then is the live data changed, in one local transaction. An existing file with the same name (an unfinished close, a reopened year) is renamed aside, never overwritten.
+- **Another device:** edits to a closed year that were still waiting on the other device are dropped when it syncs, and counted on the Years page.
+- **Reopen:** only the most recently closed year. Its records come back, opening balances go back (keeping later edits), and the archive file is renamed `…-reopened-…` as a backup.
+- **Imports:** rows that count for a closed year are skipped; an import with rows in a closed year can no longer be undone.
+
+## Income, reservations and spending
+
+One rule (`flowKind` in `calc/model.ts`) decides how every line counts, used by the overview, the reports, drill-downs and the Excel reports:
+
+- **Income:** income categories, plus uncategorised money in.
+- **Reservations & savings:** reservation categories. They count when the money is set aside. The receiving side of such a transfer is not counted again.
+- **Spending:** costs, except "Paid from reserves" (DIV). Those were already counted when the money was set aside, so they are shown apart.
+- **Left** = income − reservations & savings − spending.
+
+**Reservation categories can move money.** A category in the Reservations group can have "Moves money to" set to a reserve or savings account. Picking it on *Money out* turns the booking into a transfer to that account: the outgoing side keeps the category, the receiving side has none, and nothing is counted twice. Without a target account (e.g. a pension fund) it stays a normal booking. Split lines never move money.
+
+**Reports**
+- *Income & spending:* income stacked by source, in your order and colours (`settings.incomeReport`), with a line for spending plus reservations & savings.
+- *Category groups:* your own labelled sets of categories (`settings.reportGroups`), shown over time with a dashed line for the average. The average is taken over all months in the period; empty months count as 0.

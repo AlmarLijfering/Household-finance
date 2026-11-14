@@ -23,6 +23,7 @@ export default function ImportPage() {
   const [opts, setOpts] = useState({ includeBudgets: true, includeYearly: true, includeFx: true, includeSubscriptions: true, skipAlreadyImported: true });
   const [done, setDone] = useState<{ counts: Record<string, number>; batchId: string } | null>(null);
   const [undo, setUndo] = useState<string | null>(null);
+  const lockedBy = (batchId: string) => m.closedYears.find((c) => c.importBatchIds.includes(batchId))?.year;
   const [showRows, setShowRows] = useState(false);
 
   const plan: ImportPlan | null = useMemo(() => {
@@ -266,6 +267,12 @@ export default function ImportPage() {
         </div>
       ) : null}
 
+      {m.closedYears.length ? (
+        <div className="notice info">
+          Closed years: {m.closedYears.map((c) => c.year).join(', ')}. Rows that count for a closed year are skipped when you import.
+        </div>
+      ) : null}
+
       {step === 3 && done ? (
         <div className="stack">
           <div className="notice good">
@@ -290,7 +297,11 @@ export default function ImportPage() {
                   <div className="title">{b.fileName} {b.undone ? <span className="badge">Undone</span> : null}</div>
                   <div className="meta">{new Date(b.importedAt).toLocaleString('en-GB')} · {b.mode === 'plan' ? 'future plan' : 'actuals'} · {Object.entries(b.counts).map(([k, v]) => `${v} ${k}`).join(', ')}</div>
                 </div>
-                {!b.undone ? <button className="btn sm danger" onClick={() => setUndo(b.id)}>Undo</button> : null}
+                {!b.undone && lockedBy(b.id) ? (
+                  <span className="badge" title={`Part of this import is in the closed year ${lockedBy(b.id)}. Reopen that year to undo it.`}>{lockedBy(b.id)} closed</span>
+                ) : !b.undone ? (
+                  <button className="btn sm danger" onClick={() => setUndo(b.id)}>Undo</button>
+                ) : null}
               </div>
             ))}
           </div>

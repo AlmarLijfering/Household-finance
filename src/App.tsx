@@ -21,6 +21,11 @@ import { DrillProvider } from './components/DrillDown';
 import Welcome from './pages/Welcome';
 import { ConflictReview } from './components/ConflictReview';
 import { cx } from './lib/util';
+import Years from './pages/Years';
+import { ARCHIVE_YEAR, ReadOnlyError, ClosedYearError } from './lib/db';
+import { backToLive } from './lib/archive';
+import { useToast } from './components/ui';
+import { useEffect } from 'react';
 
 const TxCtx = createContext<(d?: TxDraft) => void>(() => {});
 export const useTxEditor = () => useContext(TxCtx);
@@ -58,8 +63,21 @@ function SyncPill() {
 
 function Shell({ children }: { children: ReactNode }) {
   const openTx = useTxEditor();
-  const pending = useAutoSync();
+  const pending = useAutoSync(!ARCHIVE_YEAR);
   const s0 = useSyncStatus();
+  const toast = useToast();
+  useEffect(() => {
+    if (ARCHIVE_YEAR) document.body.classList.add('archive-mode');
+    // edits that are not allowed (read-only archive, closed year) explain themselves instead of failing silently
+    const h = (e: PromiseRejectionEvent) => {
+      if (e.reason instanceof ReadOnlyError || e.reason instanceof ClosedYearError) {
+        e.preventDefault();
+        toast(e.reason.message);
+      }
+    };
+    window.addEventListener('unhandledrejection', h);
+    return () => window.removeEventListener('unhandledrejection', h);
+  }, []);
   return (
     <div className="shell">
       <aside className="rail">
@@ -80,19 +98,43 @@ function Shell({ children }: { children: ReactNode }) {
           <NavLink to="/categories">
             <Icon name="list" /> Categories
           </NavLink>
-          <NavLink to="/import">
-            <Icon name="import" /> Import from Excel
+          <NavLink to="/years">
+            <Icon name="archive" /> Years & archive
           </NavLink>
-          <NavLink to="/settings">
-            <Icon name="settings" /> Settings & sync
-          </NavLink>
+          {!ARCHIVE_YEAR ? (
+            <>
+              <NavLink to="/import">
+                <Icon name="import" /> Import from Excel
+              </NavLink>
+              <NavLink to="/settings">
+                <Icon name="settings" /> Settings & sync
+              </NavLink>
+            </>
+          ) : null}
         </nav>
         <div className="rail-foot">
-          <SyncPill />
-          {pending && s0.state.location ? <div className="muted small">{pending} change{pending === 1 ? '' : 's'} waiting to sync</div> : null}
+          {ARCHIVE_YEAR ? (
+            <div className="muted small">Viewing the {ARCHIVE_YEAR} archive, read-only</div>
+          ) : (
+            <>
+              <SyncPill />
+              {pending && s0.state.location ? <div className="muted small">{pending} change{pending === 1 ? '' : 's'} waiting to sync</div> : null}
+            </>
+          )}
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <main className="main">
+        {ARCHIVE_YEAR ? (
+          <div className="archive-bar" role="status">
+            <Icon name="archive" size={18} />
+            <span>
+              <b>{ARCHIVE_YEAR} archive</b> · read-only, showing only this closed year
+            </span>
+            <button className="btn sm" onClick={backToLive}>Back to live data</button>
+          </div>
+        ) : null}
+        {children}
+      </main>
       <nav className="tabbar" aria-label="Main">
         <NavLink to="/" end>
           <Icon name="home" />
@@ -153,6 +195,7 @@ export default function App() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/more" element={<More />} />
                 <Route path="/categories" element={<Categories />} />
+                <Route path="/years" element={<Years />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
               <ConflictReview />

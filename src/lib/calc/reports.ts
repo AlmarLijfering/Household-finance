@@ -1,14 +1,16 @@
+import { closedBalances, summaryLines } from './yearclose';
 import type { ID, MonthKey } from '../types';
-import { balancesByAccount, isInternal, isReserve, isSpendable, kindOf, lines, toBase, type Model } from './model';
+import { balancesByAccount, flowKind, isInternal, isReserve, isSpendable, kindOf, lines, toBase, type Model } from './model';
 import { shiftMonth, sum } from '../util';
 import { periodEnd } from './period';
 
 export interface CashFlowRow {
   month: MonthKey;
   income: number;
-  spending: number;
-  net: number;
-  reserved: number; // moved into reserve funds (reservation categories)
+  reserved: number; // set aside in reservations and savings
+  spending: number; // costs, not counting those paid from reserves
+  fromReserves: number; // costs paid from money set aside earlier (already counted in reserved)
+  net: number; // what is left: income − reserved − spending
 }
 
 export function monthsBetween(from: MonthKey, to: MonthKey): MonthKey[] {
@@ -25,31 +27,25 @@ export interface ReportFilter {
 
 function filtered(m: Model, f: ReportFilter) {
   const set = f.accountIds && f.accountIds.length ? new Set(f.accountIds) : null;
-  return lines(m).filter((l) => l.month >= f.from && l.month <= f.to && (!set || set.has(l.tx.accountId)));
+  // closed years take part through their monthly totals
+  const all = m.closedYears.length ? [...summaryLines(m), ...lines(m)] : lines(m);
+  return all.filter((l) => l.month >= f.from && l.month <= f.to && (!set || set.has(l.tx.accountId)));
 }
 
 export function cashFlow(m: Model, f: ReportFilter): CashFlowRow[] {
   const ls = filtered(m, f);
   return monthsBetween(f.from, f.to).map((month) => {
-    const ms = ls.filter((l) => l.month === month);
-    let income = 0,
-      spending = 0,
-      reserved = 0;
-    for (const l of ms) {
-      const k = kindOf(m, l.categoryId);
-      if (k === 'reservation') {
-        if (l.amount < 0) reserved += -l.amount;
-        continue;
-      }
-      if (isInternal(m, l)) continue;
-      if (k === 'income') income += l.amount;
-      else if (k === 'expense') spending += -l.amount;
-      else if (!l.categoryId) {
-        if (l.amount > 0) income += l.amount;
-        else spending += -l.amount;
-      }
+    const r: CashFlowRow = { month, income: 0, reserved: 0, spending: 0, fromReserves: 0, net: 0 };
+    for (const l of ls) {
+      if (l.month !== month) continue;
+      const k = flowKind(m, l);
+      if (k === 'income') r.income += l.amount;
+      else if (k === 'reserved') r.reserved -= l.amount;
+      else if (k === 'spending') r.spending -= l.amount;
+      else if (k === 'fromReserves') r.fromReserves -= l.amount;
     }
-    return { month, income, spending, net: income - spending, reserved };
+    r.net = r.income - r.reserved - r.spending;
+    return r;
   });
 }
 
@@ -89,7 +85,7 @@ export function balanceHistory(m: Model, f: ReportFilter) {
   const months = monthsBetween(f.from, f.to);
   return months.map((month) => {
     const end = periodEnd(m, month);
-    const bal = balancesByAccount(m, end);
+    const bal = closedBalances(m, month) ?? balancesByAccount(m, end);
     const perAccount: Record<ID, number> = {};
     let spendable = 0,
       reserves = 0;
@@ -102,4 +98,82 @@ export function balanceHistory(m: Model, f: ReportFilter) {
     }
     return { month, perAccount, spendable, reserves, total: spendable + reserves };
   });
+}
+
+// ---------------------------------------------------------------------------------
+// Income & spending: income stacked by source, everything that went out as one figure
+
+export const OTHER_INCOME = 'other';
+/** Income sources in the order they are stacked (bottom first): your order, then the rest by size. */
+export function incomeSources(m: Model, f: ReportFilter): string[] {
+  const totals = new Map<string, number>();
+  for (const l of filtered(m, f)) {
+    if (flowKind(m, l) !== 'income') continue;
+    const key = l.categoryId && kindOf(m, l.categoryId) === 'income' ? l.categoryId : OTHER_INCOME;
+    totals.set(key, (totals.get(key) ?? 0) + l.amount);
+  }
+  const order = m.settings.incomeReport?.order ?? [];
+  const known = order.filter((k) => totals.has(k));
+  const rest = [...totals.keys()].filter((k) => !order.includes(k)).sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0));
+  return [...known, ...rest];
+}
+
+export interface IncomeOutRow {
+  month: MonthKey;
+  income: number;
+  out: number; // spending + reservations & savings
+  spending: number;
+  reserved: number;
+  left: number;
+  [source: string]: number | string;
+}
+export function incomeOut(m: Model, f: ReportFilter): { rows: IncomeOutRow[]; sources: string[] } {
+  const sources = incomeSources(m, f);
+  const cf = cashFlow(m, f);
+  const ls = filtered(m, f);
+  const rows = cf.map((c) => {
+    const r: IncomeOutRow = { month: c.month, income: c.income, out: c.spending + c.reserved, spending: c.spending, reserved: c.reserved, left: c.net };
+    for (const s of sources) r[s] = 0;
+    return r;
+  });
+  const byMonth = new Map(rows.map((r) => [r.month, r]));
+  for (const l of ls) {
+    if (flowKind(m, l) !== 'income') continue;
+    const r = byMonth.get(l.month);
+    if (!r) continue;
+    const key = l.categoryId && kindOf(m, l.categoryId) === 'income' ? l.categoryId : OTHER_INCOME;
+    r[key] = (r[key] as number) + l.amount;
+  }
+  return { rows, sources };
+}
+
+// ---------------------------------------------------------------------------------
+// Category groups: a few categories taken together, over time, with their average
+
+export function groupSeries(m: Model, f: ReportFilter, categoryIds: string[]) {
+  const set = new Set(categoryIds);
+  const months = monthsBetween(f.from, f.to);
+  // income groups count money in; anything else counts money out
+  const incomeOnly = categoryIds.length > 0 && categoryIds.every((id) => kindOf(m, id) === 'income');
+  const sign = incomeOnly ? 1 : -1;
+  const perCat = new Map<string, number[]>();
+  for (const l of filtered(m, f)) {
+    if (!l.categoryId || !set.has(l.categoryId)) continue;
+    if (flowKind(m, l) === 'internal') continue; // the receiving side of a transfer is not counted twice
+    const i = months.indexOf(l.month);
+    if (i < 0) continue;
+    const arr = perCat.get(l.categoryId) ?? Array(months.length).fill(0);
+    arr[i] += sign * l.amount;
+    perCat.set(l.categoryId, arr);
+  }
+  const values = months.map((_, i) => sum([...perCat.values()].map((a) => a[i])));
+  const avg = months.length ? Math.round(sum(values) / months.length) : 0;
+  return {
+    months,
+    values,
+    avg,
+    total: sum(values),
+    incomeOnly,
+    perCategory: categoryIds.map((id) => ({ categoryId: id, values: perCat.get(id) ?? Array(months.length).fill(0) }))
+  };
 }

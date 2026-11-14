@@ -81,12 +81,13 @@ export default function Dashboard() {
 
       <div className="kpis section" style={{ marginTop: 'var(--s5)' }}>
         <div>
-          <div className="k-label">Net cash flow this month</div>
+          <div className="k-label">Left this month</div>
           <div className="k-val">
             <Money v={thisMonth?.net ?? 0} sign />
           </div>
           <div className="small muted">
-            in <DrillMoney v={thisMonth?.income ?? 0} f={{ title: `Income · ${monthLabel(month)}`, from: month, type: 'income', accountIds }} /> · out{' '}
+            in <DrillMoney v={thisMonth?.income ?? 0} f={{ title: `Income · ${monthLabel(month)}`, from: month, type: 'income', accountIds }} /> · set aside{' '}
+            <DrillMoney v={thisMonth?.reserved ?? 0} f={{ title: `Reservations & savings · ${monthLabel(month)}`, from: month, type: 'reserved', accountIds }} /> · spent{' '}
             <DrillMoney v={thisMonth?.spending ?? 0} f={{ title: `Spending · ${monthLabel(month)}`, from: month, type: 'spending', accountIds }} />
           </div>
         </div>
@@ -117,11 +118,11 @@ export default function Dashboard() {
         <div className="stack">
           <div className="section-head">
             <h2>Cash flow</h2>
-            <span className="hint">Transfers between your own accounts are left out</span>
+            <span className="hint">Income against reservations &amp; savings plus spending</span>
           </div>
           <div className="panel">
-            <CashFlowChart data={flow} onPick={(month, type) => drill({ title: `${type === 'income' ? 'Income' : 'Spending'} · ${monthLabel(month)}`, from: month, type, accountIds })} />
-            <p className="small muted" style={{ marginTop: 6 }}>Click a bar to see its transactions.</p>
+            <CashFlowChart data={flow} onPick={(month, type) => drill({ title: `${type === 'income' ? 'Income' : type === 'reserved' ? 'Reservations & savings' : 'Spending'} · ${monthLabel(month)}`, from: month, type, accountIds })} />
+            <p className="small muted" style={{ marginTop: 6 }}>When the stacked bar is taller than income, more went out than came in. Costs paid from reserves are left out: they were counted when the money was set aside. Click a bar to see its transactions.</p>
           </div>
           <div className="section-head" style={{ marginTop: 'var(--s5)' }}>
             <h2>Savings trend</h2>

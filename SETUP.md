@@ -32,6 +32,19 @@ Put the client ID into the app in one of two ways:
 - **Settings → Sync & sharing → Microsoft app registration**, pasted once on each device, or
 - as a repository variable `MSAL_CLIENT_ID` (Settings → Secrets and variables → Actions → Variables), so the build includes it.
 
+## Download helper (needed for sync with personal OneDrive)
+
+OneDrive keeps file contents on a separate download server (`my.microsoftpersonalcontent.com`). The app can upload and list files, but browsers are not allowed to read files back from that server, so sync stops with "Uploads work, but this browser is not allowed to read files back…". A tiny Cloudflare Worker fetches the file for the app. It is free (100,000 requests a day), stores and logs nothing, only accepts requests from your app's address, only forwards to Microsoft's OneDrive servers, and only ever handles the encrypted file.
+
+1. Create a free account at <https://dash.cloudflare.com/sign-up>.
+2. Go to **Compute (Workers)** → **Workers & Pages** → **Create** → **Create Worker** (start from "Hello World"). Name it `household-download` and press **Deploy**.
+3. Press **Edit code**, replace everything with the contents of `tools/download-helper/worker.js` from this repository, and press **Deploy**.
+   If the app ever moves to another address, change `ALLOWED_ORIGIN` at the top of the file.
+4. Copy the worker's address, for example `https://household-download.your-name.workers.dev`. Opening it in a browser shows "Household Finance download helper is running."
+5. In the app: **Settings → Sync & sharing → Download helper**, paste the address and press **Save**. Do this on every device (it is stored per device, like the client ID).
+
+The app still tries the direct download first; when that fails it switches to the helper for the rest of the session.
+
 ## 3. First person: create the household
 
 1. Open the app, import your workbook (or start fresh), then go to **Settings → Sync & sharing**.

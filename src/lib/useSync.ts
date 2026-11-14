@@ -16,9 +16,10 @@ export function useSyncStatus() {
 export const runSync = () => syncNow({ publish: publishReports });
 
 /** Starts sync on open, when the app returns to the foreground, and shortly after edits. */
-export function useAutoSync() {
+export function useAutoSync(enabled = true) {
   const pending = useLiveQuery(() => db.pending.count(), []);
   useEffect(() => {
+    if (!enabled) return;
     (async () => {
       await restoreKey();
       const s = await loadState();
@@ -34,7 +35,7 @@ export function useAutoSync() {
     };
   }, []);
   useEffect(() => {
-    if (!pending || !status.state.location) return;
+    if (!enabled || !pending || !status.state.location) return;
     const h = setTimeout(() => runSync(), 4000);
     return () => clearTimeout(h);
   }, [pending]);

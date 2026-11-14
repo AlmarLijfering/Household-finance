@@ -68,7 +68,16 @@ export const pad = (n: number) => String(n).padStart(2, '0');
 export function isoDate(d: Date): ISODate {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-export const today = (): ISODate => isoDate(new Date());
+// A closed year opened read-only behaves as if today were late in its last budget month.
+const ARCHIVE_TODAY: ISODate | null = (() => {
+  try {
+    const v = new URLSearchParams(location.search).get('archive');
+    return v && /^\d{4}$/.test(v) ? `${v}-12-20` : null;
+  } catch {
+    return null;
+  }
+})();
+export const today = (): ISODate => ARCHIVE_TODAY ?? isoDate(new Date());
 export const monthOf = (d: ISODate): MonthKey => d.slice(0, 7);
 export const currentMonth = (): MonthKey => monthOf(today());
 export function parseISO(d: ISODate): Date {

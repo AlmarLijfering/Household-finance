@@ -18,7 +18,8 @@ import type {
   Reconciliation,
   ImportBatch,
   MonthPlan,
-  AccountType
+  AccountType,
+  ClosedYear
 } from '../types';
 import { txMonth, txWeek, periodEnd } from './period';
 
@@ -38,6 +39,7 @@ export interface Model {
   reconciliations: Reconciliation[];
   importBatches: ImportBatch[];
   monthPlans: MonthPlan[];
+  closedYears: ClosedYear[];
   // indexes
   accountById: Map<ID, Account>;
   categoryById: Map<ID, Category>;
@@ -54,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   updatedAt: ''
 };
 
-export function buildModel(raw: Omit<Model, 'accountById' | 'categoryById' | 'groupById' | 'ratesByCurrency' | 'monthPlans'> & { monthPlans?: MonthPlan[] }): Model {
+export function buildModel(raw: Omit<Model, 'accountById' | 'categoryById' | 'groupById' | 'ratesByCurrency' | 'monthPlans' | 'closedYears'> & { monthPlans?: MonthPlan[]; closedYears?: ClosedYear[] }): Model {
   const ratesByCurrency = new Map<string, FxRate[]>();
   for (const r of raw.fxRates) {
     const arr = ratesByCurrency.get(r.currency) ?? [];
@@ -65,6 +67,7 @@ export function buildModel(raw: Omit<Model, 'accountById' | 'categoryById' | 'gr
   return {
     ...raw,
     monthPlans: raw.monthPlans ?? [],
+    closedYears: [...(raw.closedYears ?? [])].sort((a, b) => a.year - b.year),
     accounts: [...raw.accounts].sort((a, b) => a.sort - b.sort || a.code.localeCompare(b.code)),
     categories: [...raw.categories].sort((a, b) => a.sort - b.sort || a.code.localeCompare(b.code)),
     groups: [...raw.groups].sort((a, b) => a.sort - b.sort),
@@ -182,6 +185,45 @@ function linesOf(m: Model, txs: Transaction[]): Line[] {
 }
 
 /** True when a line is money moving inside the household rather than income or spending. */
+/**
+ * How a line counts in cash-flow views.
+ * - income: income categories (and uncategorised money in)
+ * - reserved: set aside in reservations or savings (counts as money used when it is set aside)
+ * - spending: costs, except those paid from reserves
+ * - fromReserves: costs paid from money set aside earlier ("Paid from reserves"); already counted as reserved
+ * - internal: transfers between your own accounts, opening balances
+ */
+export type FlowKind = 'income' | 'reserved' | 'spending' | 'fromReserves' | 'internal';
+export function flowKind(m: Model, l: { categoryId: ID | null; amount: number; tx: Transaction }): FlowKind {
+  const k = kindOf(m, l.categoryId);
+  if (!l.categoryId) return l.tx.transferId ? 'internal' : l.amount > 0 ? 'income' : 'spending';
+  if (k === 'income') return 'income';
+  if (k === 'reservation') return l.tx.transferId && l.amount > 0 ? 'internal' : 'reserved';
+  if (k === 'expense') {
+    const c = m.categoryById.get(l.categoryId);
+    return c && m.groupById.get(c.groupId)?.code === 'DIV' ? 'fromReserves' : 'spending';
+  }
+  return 'internal';
+}
+
+/** The reserve or savings account a reservation category moves money to, if set. */
+export function moveTarget(m: Model, categoryId: ID | null | undefined): Account | undefined {
+  if (!categoryId) return undefined;
+  const c = m.categoryById.get(categoryId);
+  if (!c?.moveToAccountId || kindOf(m, categoryId) !== 'reservation') return undefined;
+  const a = m.accountById.get(c.moveToAccountId);
+  return a && !a.archived ? a : undefined;
+}
+/** Where money booked on this category went before, most used first (from transfers). */
+export function moveHistory(m: Model, categoryId: ID): Array<{ account: Account; count: number }> {
+  const counts = new Map<ID, number>();
+  for (const t of m.transactions) if (t.categoryId === categoryId && t.transferId && t.amount < 0 && t.transferAccountId) counts.set(t.transferAccountId, (counts.get(t.transferAccountId) ?? 0) + 1);
+  return [...counts]
+    .map(([id, count]) => ({ account: m.accountById.get(id)!, count }))
+    .filter((x) => x.account)
+    .sort((a, b) => b.count - a.count);
+}
+
 export function isInternal(m: Model, l: Line): boolean {
   const k = kindOf(m, l.categoryId);
   if (k === 'transfer' || k === 'opening' || k === 'reservation') return true;

@@ -89,9 +89,9 @@ export class PreconditionFailed extends Error {
 export class DownloadBlocked extends Error {
   constructor(public host: string) {
     super(
-      `This browser can reach Microsoft Graph but cannot read files from OneDrive's download server (${host}). ` +
-        `Uploads still work, so nothing is lost. This usually means a company network, VPN or security software blocks downloads from personal OneDrive. ` +
-        `Try the app on your phone or a home computer to confirm.`
+      `Uploads work, but this browser is not allowed to read files back from OneDrive's download server (${host}). ` +
+        `Nothing is lost: your changes stay on this device. Set up the free download helper (SETUP.md, "Download helper") ` +
+        `and paste its address under Settings → Sync & sharing.`
     );
   }
 }
@@ -181,7 +181,7 @@ export async function createHouseholdFolder(name = 'Household Finance'): Promise
 }
 
 export async function ensureSubfolders(loc: Location) {
-  for (const sub of ['Data', 'Reports', 'Backups']) {
+  for (const sub of ['Data', 'Reports', 'Backups', 'Archive']) {
     const r = await gfetch(`/drives/${loc.driveId}/items/${loc.folderId}:/${sub}`);
     if (r.ok) continue;
     if (r.status !== 404) await json(r);
@@ -231,6 +231,32 @@ export async function revoke(loc: Location, permissionId: string) {
   if (!r.ok && r.status !== 204) await json(r);
 }
 
+/** Optional download helper (see SETUP.md): routes file downloads around OneDrive's download server. */
+export function downloadHelper(): string {
+  return (localStorage.getItem('pfm.downloadHelper') || '').trim();
+}
+let directBroken = false; // remembered for this session once a direct download failed
+
+async function viaHelper(helper: string, url: string): Promise<Response> {
+  try {
+    return await fetch(helper, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: url, cache: 'no-store' });
+  } catch {
+    throw new Error(`The download helper at ${new URL(helper).host} could not be reached. Check its address under Settings → Sync & sharing.`);
+  }
+}
+
+async function fetchContent(url: string): Promise<Response> {
+  const helper = downloadHelper();
+  if (helper && directBroken) return viaHelper(helper, url);
+  try {
+    return await fetch(url, { cache: 'no-store', credentials: 'omit' });
+  } catch {
+    directBroken = true;
+    if (helper) return viaHelper(helper, url);
+    throw new DownloadBlocked(new URL(url).host);
+  }
+}
+
 const itemPath = (loc: Location, path: string) => `/drives/${loc.driveId}/items/${loc.folderId}:/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 export async function getMeta(loc: Location, path: string): Promise<DriveItem | null> {
@@ -245,15 +271,7 @@ export async function download(loc: Location, path: string): Promise<{ meta: Dri
   if (r.status === 404) return null;
   const meta = await json<DriveItem & { '@microsoft.graph.downloadUrl': string }>(r);
   const url = meta['@microsoft.graph.downloadUrl'];
-  let res: Response | null = null;
-  for (let attempt = 0; attempt < 3 && !res; attempt++) {
-    try {
-      res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
-    } catch {
-      if (attempt < 2) await sleep(700 * (attempt + 1));
-    }
-  }
-  if (!res) throw new DownloadBlocked(new URL(url).host);
+  const res = await fetchContent(url);
   if (!res.ok) throw new GraphError(res.status, `Download of ${path} failed (${res.status})`);
   return { meta, body: await res.arrayBuffer() };
 }
@@ -288,6 +306,17 @@ export async function upload(loc: Location, path: string, body: Blob, ifMatch?: 
   return json(last!);
 }
 
+/** Rename a file in place (used to keep an old archive aside instead of deleting it). */
+export async function renameItem(loc: Location, path: string, newName: string): Promise<void> {
+  const r = await gfetch(itemPath(loc, path), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName, '@microsoft.graph.conflictBehavior': 'rename' })
+  });
+  if (r.status === 404) return;
+  await json(r);
+}
+
 export async function listChildren(loc: Location, path: string): Promise<DriveItem[]> {
   const r = await gfetch(itemPath(loc, path) + ':/children?$top=200');
   if (r.status === 404) return [];
@@ -304,9 +333,9 @@ export async function staleWriteTest(loc: Location): Promise<{ ok: boolean; deta
   const b = await upload(loc, path, new Blob([JSON.stringify({ t: Date.now(), step: 2 })]), a.eTag);
   try {
     await upload(loc, path, new Blob([JSON.stringify({ t: Date.now(), step: 3 })]), a.eTag);
-    return { ok: false, detail: `A write with a stale ETag was accepted (${a.eTag} after ${b.eTag}). Do not enable shared edits.` };
+    return { ok: false, detail: `Failed. OneDrive accepted a save based on an outdated copy (${a.eTag} after ${b.eTag}). Do not share the household between two people until this passes.` };
   } catch (e) {
-    if (e instanceof PreconditionFailed) return { ok: true, detail: 'Stale write was rejected with 412 Precondition Failed. Conditional saves are working.' };
+    if (e instanceof PreconditionFailed) return { ok: true, detail: 'Passed. OneDrive refused a save based on an outdated copy, as it should, so two devices cannot overwrite each other\'s changes.' };
     throw e;
   }
 }

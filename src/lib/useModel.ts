@@ -3,9 +3,10 @@ import { createContext, useContext } from 'react';
 import { db } from './db';
 import { buildModel, DEFAULT_SETTINGS, type Model } from './calc/model';
 
-export function useLiveModel(): Model | undefined {
-  return useLiveQuery(async () => {
-    const [settings, accounts, groups, categories, transactions, budgetLines, recurring, planned, scenarios, yearlyItems, yearlyFunds, fxRates, reconciliations, importBatches, monthPlans] = await Promise.all([
+/** Read the whole model from the local database (also used outside React). */
+export async function loadModel(): Promise<Model> {
+  {
+    const [settings, accounts, groups, categories, transactions, budgetLines, recurring, planned, scenarios, yearlyItems, yearlyFunds, fxRates, reconciliations, importBatches, monthPlans, closedYears] = await Promise.all([
       db.settings.get('settings'),
       db.accounts.toArray(),
       db.groups.toArray(),
@@ -20,7 +21,8 @@ export function useLiveModel(): Model | undefined {
       db.fxRates.toArray(),
       db.reconciliations.toArray(),
       db.importBatches.toArray(),
-      db.monthPlans.toArray()
+      db.monthPlans.toArray(),
+      db.closedYears.toArray()
     ]);
     return buildModel({
       settings: settings ?? DEFAULT_SETTINGS,
@@ -37,9 +39,14 @@ export function useLiveModel(): Model | undefined {
       fxRates,
       reconciliations,
       importBatches,
-      monthPlans
+      monthPlans,
+      closedYears
     });
-  }, []);
+  }
+}
+
+export function useLiveModel(): Model | undefined {
+  return useLiveQuery(loadModel, []);
 }
 
 export const ModelCtx = createContext<Model | null>(null);

@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useModel } from '../lib/useModel';
-import { isInternal, kindOf, lines, type Line, type Model } from '../lib/calc/model';
+import { flowKind, isInternal, kindOf, lines, type Line, type Model } from '../lib/calc/model';
 import type { ID } from '../lib/types';
 import { fmtDate, monthLabel, sum } from '../lib/util';
 import { weekRange } from '../lib/calc/period';
@@ -15,7 +15,7 @@ export interface DrillFilter {
   to?: string; // YYYY-MM (last month), defaults to from
   categoryIds?: ID[];
   groupCode?: string; // IC, PC, RE, UC, DIV…
-  type?: 'income' | 'spending' | 'reserved' | 'transfers' | 'all';
+  type?: 'income' | 'spending' | 'reserved' | 'fromReserves' | 'transfers' | 'all';
   week?: number;
   excludeWeeks?: number[];
   accountIds?: ID[];
@@ -42,11 +42,13 @@ export function drillLines(m: Model, f: DrillFilter): Line[] {
       if ((cats || f.groupCode) && l.tx.transferId && l.amount > 0 && k === 'reservation') return false;
       switch (f.type ?? 'all') {
         case 'income':
-          return k === 'income' || (!l.categoryId && !l.tx.transferId && l.amount > 0);
+          return flowKind(m, l) === 'income';
         case 'spending':
-          return k === 'expense' || (!l.categoryId && !l.tx.transferId && l.amount < 0);
+          return flowKind(m, l) === 'spending';
         case 'reserved':
-          return k === 'reservation' && l.amount < 0;
+          return flowKind(m, l) === 'reserved';
+        case 'fromReserves':
+          return flowKind(m, l) === 'fromReserves';
         case 'transfers':
           return isInternal(m, l);
         default:

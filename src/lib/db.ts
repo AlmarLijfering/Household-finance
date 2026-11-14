@@ -23,6 +23,7 @@ class FinanceDB extends Dexie {
   reconciliations!: Table<TableTypes['reconciliations'], string>;
   importBatches!: Table<TableTypes['importBatches'], string>;
   monthPlans!: Table<TableTypes['monthPlans'], string>;
+  closedYears!: Table<TableTypes['closedYears'], string>;
   settings!: Table<TableTypes['settings'], string>;
   /** Local edits not yet confirmed on OneDrive. Survives reloads and crashes. */
   pending!: Table<Op, string>;
@@ -49,10 +50,58 @@ class FinanceDB extends Dexie {
       kv: 'key'
     });
     this.version(2).stores({ monthPlans: 'id' });
+    this.version(3).stores({ closedYears: 'id' });
   }
 }
 
-export const db = new FinanceDB();
+/**
+ * Viewing a closed year opens the app with ?archive=YYYY. It then reads a separate,
+ * read-only local database holding only that year's archive.
+ */
+export const ARCHIVE_YEAR: number | null = (() => {
+  try {
+    const v = new URLSearchParams(location.search).get('archive');
+    return v && /^\d{4}$/.test(v) ? Number(v) : null;
+  } catch {
+    return null;
+  }
+})();
+export const archiveDbName = (year: number) => `household-finance-archive-${year}`;
+export const openFinanceDb = (name: string) => new FinanceDB(name);
+
+export const db = new FinanceDB(ARCHIVE_YEAR ? archiveDbName(ARCHIVE_YEAR) : 'household-finance');
+
+export class ReadOnlyError extends Error {
+  constructor(msg = 'This is a closed year, opened read-only. Go back to your live data to make changes.') {
+    super(msg);
+  }
+}
+export class ClosedYearError extends Error {}
+
+/** Refuse new or changed records that belong to a closed year (the close itself only deletes). */
+async function guardClosed(changes: Array<{ table: TableName; put?: any; del?: string }>) {
+  const relevant = changes.filter((c) => c.put && (c.table === 'transactions' || c.table === 'budgetLines' || c.table === 'monthPlans' || c.table === 'yearlyItems' || c.table === 'yearlyFunds'));
+  if (!relevant.length) return;
+  const closed = new Set((await db.closedYears.toArray()).map((c) => c.year));
+  for (const c of changes) {
+    if (c.table !== 'closedYears') continue;
+    if (c.put) closed.add(c.put.year);
+    if (c.del) closed.delete(Number(c.del));
+  }
+  if (!closed.size) return;
+  const { monthOfDate } = await import('./calc/period');
+  const [settings, monthPlans] = await Promise.all([db.settings.get('settings'), db.monthPlans.toArray()]);
+  const mini = { settings: settings ?? { budgetPeriods: 'weeks' }, monthPlans } as any;
+  for (const c of relevant) {
+    const r = c.put;
+    let year: number;
+    if (c.table === 'transactions') year = Number((r.budgetMonth || monthOfDate(mini, r.date)).slice(0, 4));
+    else if (c.table === 'budgetLines') year = Number(r.month.slice(0, 4));
+    else if (c.table === 'monthPlans') year = Number(r.id.slice(0, 4));
+    else year = Number(r.year);
+    if (closed.has(year)) throw new ClosedYearError(`${year} is closed. Reopen the year under Years & archive before changing it.`);
+  }
+}
 
 function table<K extends TableName>(name: K): Table<TableTypes[K], string> {
   return (db as unknown as Record<string, Table<TableTypes[K], string>>)[name];
@@ -67,6 +116,8 @@ export async function commit(
   changes: Array<{ table: TableName; put?: any; del?: string }>,
   label?: string
 ): Promise<void> {
+  if (ARCHIVE_YEAR) throw new ReadOnlyError();
+  await guardClosed(changes);
   const at = nowIso();
   const device = deviceId();
   const names = Array.from(new Set(changes.map((c) => c.table)));

@@ -3,6 +3,7 @@ import { GROUPS, costTypeFor } from '../structure';
 import type { Model } from '../calc/model';
 import type { ImportPlan } from './parse';
 import { addMonths, nowIso, today, uid } from '../util';
+import { monthOfDate } from '../calc/period';
 
 export interface CommitOptions {
   accountMap: Record<string, string | 'new'>; // plan account code → existing account id or 'new'
@@ -218,6 +219,44 @@ export function buildCommit(plan: ImportPlan, m: Model, o: CommitOptions): { cha
       const rec: Recurring = { id: uid(), name: s.name, kind: 'subscription', accountId, categoryId: cat('PC032'), amount: s.amount, frequency: 'monthly', interval: 1, startDate: next, nextDate: next, active: true, importBatchId: batchId, updatedAt: at };
       changes.push({ table: 'recurring', put: rec });
       inc('subscriptions');
+    }
+  }
+
+  // Rows for a closed year are left out: that year lives in its archive now.
+  if (m.closedYears.length) {
+    const closed = new Set(m.closedYears.map((c) => c.year));
+    const starts = new Map(Object.entries(plan.periodStarts));
+    const mm = { ...m, monthPlans: [...m.monthPlans.filter((p) => !starts.has(p.id)), ...[...starts].map(([id, startDate]) => ({ id, startDate, updatedAt: at }))] } as Model;
+    const yearOf = (c: Change): number | null => {
+      const r = c.put;
+      if (!r) return null;
+      if (c.table === 'transactions') return Number((r.budgetMonth || monthOfDate(mm, r.date)).slice(0, 4));
+      if (c.table === 'budgetLines') return Number(r.month.slice(0, 4));
+      if (c.table === 'monthPlans') return Number(r.id.slice(0, 4));
+      if (c.table === 'yearlyItems' || c.table === 'yearlyFunds') return Number(r.year);
+      return null;
+    };
+    const drop = new Set<Change>();
+    const droppedTransfers = new Set<string>();
+    for (const c of changes) {
+      const y = yearOf(c);
+      if (y != null && closed.has(y)) {
+        drop.add(c);
+        if (c.table === 'transactions' && c.put.transferId) droppedTransfers.add(c.put.transferId);
+      }
+    }
+    // a transfer is kept or left out as a whole
+    for (const c of changes) if (c.table === 'transactions' && c.put?.transferId && droppedTransfers.has(c.put.transferId)) drop.add(c);
+    const n = [...drop].filter((c) => c.table === 'transactions').length;
+    if (drop.size) {
+      for (let i = changes.length - 1; i >= 0; i--) if (drop.has(changes[i])) changes.splice(i, 1);
+      counts.skippedClosedYear = n;
+      for (const k of ['transactions', 'transferSides', 'budgetLines', 'yearlyItems', 'openingBalances']) if (counts[k] != null) counts[k] = 0;
+      for (const c of changes) {
+        if (c.table === 'transactions') counts[c.put.transferId ? 'transferSides' : 'transactions'] = (counts[c.put.transferId ? 'transferSides' : 'transactions'] ?? 0) + 1;
+        if (c.table === 'budgetLines' && c.put) counts.budgetLines = (counts.budgetLines ?? 0) + 1;
+        if (c.table === 'yearlyItems' && c.put) counts.yearlyItems = (counts.yearlyItems ?? 0) + 1;
+      }
     }
   }
 

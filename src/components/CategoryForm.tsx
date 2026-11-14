@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useModel } from '../lib/useModel';
 import { put } from '../lib/db';
 import { Field, Modal, useToast } from './ui';
-import { ACCOUNT_TYPE_LABEL } from '../lib/calc/model';
+import { ACCOUNT_TYPE_LABEL, isReserve, moveHistory } from '../lib/calc/model';
 import type { AccountType, Category, Rollover } from '../lib/types';
 import { uid } from '../lib/util';
 
@@ -33,6 +33,7 @@ export function CategoryForm({ initial, onClose, onSaved, defaultGroupCode }: { 
   );
   const [mode, setMode] = useState<ScopeMode>(c.accountIds?.length ? 'accounts' : c.accountTypes?.length ? 'types' : 'all');
   const sections = Array.from(new Set(m.categories.map((x) => x.section).filter(Boolean))) as string[];
+  const hist = initial ? moveHistory(m, initial.id).filter((h) => isReserve(h.account)) : [];
   const toggle = <T,>(arr: T[] | undefined, v: T) => (arr?.includes(v) ? arr.filter((x) => x !== v) : [...(arr ?? []), v]);
 
   async function save() {
@@ -40,7 +41,8 @@ export function CategoryForm({ initial, onClose, onSaved, defaultGroupCode }: { 
       ...c,
       name: c.name.trim(),
       accountTypes: mode === 'types' && c.accountTypes?.length ? c.accountTypes : undefined,
-      accountIds: mode === 'accounts' && c.accountIds?.length ? c.accountIds : undefined
+      accountIds: mode === 'accounts' && c.accountIds?.length ? c.accountIds : undefined,
+      moveToAccountId: m.groupById.get(c.groupId)?.kind === 'reservation' ? c.moveToAccountId : undefined
     };
     if (!initial && m.categories.some((x) => x.code === rec.code)) return toast(`Code ${rec.code} is already used`);
     await put('categories', rec, initial ? 'Edit category' : 'Add category');
@@ -104,6 +106,31 @@ export function CategoryForm({ initial, onClose, onSaved, defaultGroupCode }: { 
             {c.activeUntil ? <button type="button" className="btn sm ghost" onClick={() => setC({ ...c, activeUntil: undefined })}>Clear</button> : null}
           </div>
         </Field>
+        {m.groupById.get(c.groupId)?.kind === 'reservation' ? (
+          <Field
+            label="Moves money to"
+            className="full"
+            help={
+              c.moveToAccountId
+                ? 'Money out on this category is saved as a transfer to this account: it counts once as set aside, and the account’s balance goes up.'
+                : hist[0]
+                  ? `Before, this category mostly went to ${hist[0].account.name} (${hist[0].count}×).`
+                  : 'Pick the reserve or savings account the money goes to. Leave empty when it leaves your accounts, e.g. a pension fund.'
+            }
+          >
+            <div className="row">
+              <select className="input" value={c.moveToAccountId ?? ''} onChange={(e) => setC({ ...c, moveToAccountId: e.target.value || undefined })}>
+                <option value="">Nowhere: the money leaves your accounts</option>
+                {m.accounts.filter((a) => isReserve(a) && (!a.archived || a.id === c.moveToAccountId)).map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+              {!c.moveToAccountId && hist[0] ? (
+                <button type="button" className="btn sm" onClick={() => setC({ ...c, moveToAccountId: hist[0].account.id })}>Use {hist[0].account.name}</button>
+              ) : null}
+            </div>
+          </Field>
+        ) : null}
         <Field label="Rollover">
           <select className="input" value={c.rollover ?? 'none'} onChange={(e) => setC({ ...c, rollover: e.target.value as Rollover })}>
             <option value="none">None — each month starts fresh</option>
