@@ -4,7 +4,7 @@ import { commit } from '../lib/db';
 import { planBulk, type BulkChanges } from '../lib/bulk';
 import { lastBookableMonth, monthOfDate } from '../lib/calc/period';
 import { monthLabel, shiftMonth, today } from '../lib/util';
-import { Field, Modal, useToast } from './ui';
+import { Confirm, Field, Icon, Modal, Money, useToast } from './ui';
 import { AccountSelect, CategorySelect } from './TxEditor';
 import { BudgetDatePicker } from './BudgetDatePicker';
 import type { ID } from '../lib/types';
@@ -57,6 +57,22 @@ export function BulkEdit({ ids, onClose, onDone }: { ids: ID[]; onClose: () => v
   const preview = useMemo(() => planBulk(m, ids, changes), [m, ids, useAcc, acc, useCat, cat, useMonth, month, usePayee, payee, useDate, date]);
   const any = useAcc || useCat || useMonth || usePayee || useDate;
 
+  // deleting: the other side of a selected transfer goes too, as in the single edit screen
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const toDelete = useMemo(() => {
+    const transferIds = new Set(sel.map((t) => t.transferId).filter(Boolean));
+    return m.transactions.filter((t) => ids.includes(t.id) || (t.transferId && transferIds.has(t.transferId)));
+  }, [m, ids, sel]);
+  const extraSides = toDelete.length - sel.length;
+
+  async function removeAll() {
+    const before = toDelete;
+    await commit(before.map((t) => ({ table: 'transactions' as const, del: t.id })), `Delete ${sel.length} transactions`);
+    toast({ text: `${sel.length} transaction${sel.length === 1 ? '' : 's'} deleted`, action: { label: 'Undo', run: () => commit(before.map((t) => ({ table: 'transactions' as const, put: t })), 'Undo delete') } });
+    onDone();
+    onClose();
+  }
+
   async function apply() {
     const r = planBulk(m, ids, changes);
     if (!r.changes.length) return toast('Nothing to change');
@@ -73,6 +89,9 @@ export function BulkEdit({ ids, onClose, onDone }: { ids: ID[]; onClose: () => v
       onClose={onClose}
       footer={
         <>
+          <button className="btn danger" onClick={() => setConfirmDelete(true)}>
+            <Icon name="trash" size={16} /> Delete {sel.length}
+          </button>
           <span className="small muted" style={{ marginRight: 'auto' }}>
             {any ? `${preview.updated} will change${preview.skipped.length ? `, ${preview.skipped.reduce((s, x) => s + x.count, 0)} skipped` : ''}` : 'Tick what you want to change'}
           </span>
@@ -119,6 +138,21 @@ export function BulkEdit({ ids, onClose, onDone }: { ids: ID[]; onClose: () => v
             ))}
           </ul>
         </div>
+      ) : null}
+      {confirmDelete ? (
+        <Confirm
+          title={`Delete ${sel.length} transaction${sel.length === 1 ? '' : 's'}?`}
+          danger
+          confirm={`Delete ${sel.length}`}
+          onClose={() => setConfirmDelete(false)}
+          onYes={removeAll}
+          body={
+            <>
+              {counts.out} money out, {counts.in} money in and {counts.transfer} transfer side{counts.transfer === 1 ? '' : 's'}, net <Money v={sel.reduce((a, t) => a + (t.transferId ? 0 : t.amount), 0)} /> excluding transfers.
+              {extraSides ? ` The other side of ${extraSides} transfer${extraSides === 1 ? '' : 's'} is deleted as well, so no account is left with half a transfer.` : ''} You can undo this right after.
+            </>
+          }
+        />
       ) : null}
     </Modal>
   );
