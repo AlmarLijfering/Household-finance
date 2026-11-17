@@ -145,9 +145,16 @@ function SyncSettings() {
               <button className="btn" onClick={() => G.signOut()}>Sign out</button>
             </>
           ) : (
-            <button className="btn primary" disabled={!G.clientId()} onClick={() => run('signin', G.signIn)}>
-              Sign in with Microsoft
-            </button>
+            <>
+              <button className="btn primary" disabled={!G.clientId()} onClick={() => run('signin', () => G.signIn())}>
+                {G.knownAccount() ? `Sign in as ${G.knownAccount()!.username}` : 'Sign in with Microsoft'}
+              </button>
+              {G.knownAccount() ? (
+                <button className="btn" disabled={!G.clientId()} onClick={() => run('signin', () => G.signIn({ switchAccount: true }))}>
+                  Use another account
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       </section>

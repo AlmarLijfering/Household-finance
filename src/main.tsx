@@ -25,7 +25,13 @@ async function boot() {
       console.error('Sign-in could not be completed', e);
       sessionStorage.setItem('pfm.signinError', String((e as Error)?.message ?? e));
     }
-    history.replaceState(null, '', location.pathname + '#/settings');
+    // back to the page you signed in from (first sign-in: Settings)
+    let back = '#/settings';
+    try {
+      back = sessionStorage.getItem('pfm.returnTo') || back;
+      sessionStorage.removeItem('pfm.returnTo');
+    } catch {}
+    history.replaceState(null, '', location.pathname + back);
   }
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

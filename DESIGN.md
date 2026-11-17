@@ -121,3 +121,10 @@ One rule (`flowKind` in `calc/model.ts`) decides how every line counts, used by 
 **Reports**
 - *Income & spending:* income stacked by source, in your order and colours (`settings.incomeReport`), with a line for spending plus reservations & savings.
 - *Category groups:* your own labelled sets of categories (`settings.reportGroups`), shown over time with a dashed line for the average. The average is taken over all months in the period; empty months count as 0.
+
+## Staying signed in
+
+MSAL (v4 and later) encrypts its browser cache with a key kept in a session cookie. When the browser closes the key is gone, so the sign-in is lost unless the user chose "Stay signed in?" at Microsoft. On top of that, Microsoft limits single-page-app refresh tokens to about 24 hours. To soften both:
+- The app remembers the signed-in address (`pfm.account`, local only). When MSAL has lost its state, the app first tries `ssoSilent` with that address as a hint, which works while Microsoft still recognises the browser.
+- If that fails, signing in again uses the address as `loginHint` (no account picker), so it is usually one click. It returns to the page you were on.
+- With a household connected and sync signed out, a sign-in screen appears and has to be answered. "Continue without signing in" needs a second confirmation that explains what is not synced, and only lasts until the browser closes.

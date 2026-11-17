@@ -37,7 +37,10 @@ export async function getMsal(): Promise<PublicClientApplication> {
       });
       await app.initialize();
       const res = await app.handleRedirectPromise();
-      if (res?.account) app.setActiveAccount(res.account);
+      if (res?.account) {
+        app.setActiveAccount(res.account);
+        rememberAccount(res.account);
+      }
       else if (!app.getActiveAccount() && app.getAllAccounts()[0]) app.setActiveAccount(app.getAllAccounts()[0]);
       msal = app;
       return app;
@@ -54,25 +57,93 @@ export async function currentAccount(): Promise<AccountInfo | null> {
   }
 }
 
-export async function signIn() {
+/**
+ * Who was signed in on this device. The sign-in library forgets its own state when the browser
+ * closes (unless "Stay signed in" was chosen at Microsoft), so the app keeps the address itself
+ * to restore the sign-in quietly or with one click.
+ */
+export interface KnownAccount {
+  username: string;
+  name?: string;
+}
+export function knownAccount(): KnownAccount | null {
+  try {
+    const v = JSON.parse(localStorage.getItem('pfm.account') || 'null');
+    return v?.username ? v : null;
+  } catch {
+    return null;
+  }
+}
+function rememberAccount(a: AccountInfo | null | undefined) {
+  if (!a?.username) return;
+  try {
+    localStorage.setItem('pfm.account', JSON.stringify({ username: a.username, name: a.name }));
+  } catch {}
+}
+
+export async function signIn(opts: { switchAccount?: boolean } = {}) {
   const app = await getMsal();
+  const known = knownAccount();
+  // come back to the page you were on
+  try {
+    sessionStorage.setItem('pfm.returnTo', location.hash.startsWith('#/') ? location.hash : '#/');
+    sessionStorage.removeItem('pfm.skipSignIn');
+  } catch {}
   // Redirect works in installed iOS/iPadOS web apps, where popups are unreliable.
-  await app.loginRedirect({ scopes: SCOPES, prompt: 'select_account' });
+  // With a known account Microsoft usually signs straight back in without asking anything.
+  if (known && !opts.switchAccount) await app.loginRedirect({ scopes: SCOPES, loginHint: known.username });
+  else await app.loginRedirect({ scopes: SCOPES, prompt: 'select_account' });
 }
 export async function signOut() {
   const app = await getMsal();
+  try {
+    localStorage.removeItem('pfm.account');
+    sessionStorage.setItem('pfm.skipSignIn', 'signed-out');
+  } catch {}
   await app.logoutRedirect({ account: app.getActiveAccount() ?? undefined });
+}
+
+let restoring: Promise<AccountInfo | null> | null = null;
+/** Try to get the sign-in back without showing anything (works while Microsoft still knows this browser). */
+async function restoreQuietly(app: PublicClientApplication): Promise<AccountInfo | null> {
+  const known = knownAccount();
+  if (!known) return null;
+  if (!restoring)
+    restoring = (async () => {
+      try {
+        const r = await app.ssoSilent({ scopes: SCOPES, loginHint: known.username });
+        if (r.account) {
+          app.setActiveAccount(r.account);
+          rememberAccount(r.account);
+        }
+        return r.account ?? null;
+      } catch {
+        return null;
+      } finally {
+        setTimeout(() => (restoring = null), 60_000); // don't hammer Microsoft when it cannot work
+      }
+    })();
+  return restoring;
 }
 
 async function token(): Promise<string> {
   const app = await getMsal();
-  const account = app.getActiveAccount();
-  if (!account) throw new AuthRequired();
-  try {
-    return (await app.acquireTokenSilent({ scopes: SCOPES, account })).accessToken;
-  } catch {
-    throw new AuthRequired();
+  let account = app.getActiveAccount();
+  if (account) {
+    rememberAccount(account);
+    try {
+      return (await app.acquireTokenSilent({ scopes: SCOPES, account })).accessToken;
+    } catch {
+      // the stored sign-in ran out: fall through and try to restore it
+    }
   }
+  account = await restoreQuietly(app);
+  if (account) {
+    try {
+      return (await app.acquireTokenSilent({ scopes: SCOPES, account })).accessToken;
+    } catch {}
+  }
+  throw new AuthRequired();
 }
 
 export class AuthRequired extends Error {

@@ -22,6 +22,8 @@ import Welcome from './pages/Welcome';
 import { ConflictReview } from './components/ConflictReview';
 import { cx } from './lib/util';
 import Years from './pages/Years';
+import { SignInGate } from './components/SignInGate';
+import { knownAccount, signIn } from './lib/sync/graph';
 import { ARCHIVE_YEAR, ReadOnlyError, ClosedYearError } from './lib/db';
 import { backToLive } from './lib/archive';
 import { useToast } from './components/ui';
@@ -31,15 +33,41 @@ const TxCtx = createContext<(d?: TxDraft) => void>(() => {});
 export const useTxEditor = () => useContext(TxCtx);
 
 const NAV: Array<[string, string, string]> = [
-  ['/', 'Overview', 'home'],
+  ['/budget', 'Budget', 'budget'],
   ['/accounts', 'Accounts', 'accounts'],
   ['/transactions', 'Transactions', 'list'],
-  ['/budget', 'Budget', 'budget'],
+  ['/', 'Overview', 'home'],
   ['/recurring', 'Bills & income', 'repeat'],
   ['/yearly', 'Yearly expenses', 'envelope'],
   ['/forecast', 'Forecast', 'forecast'],
   ['/reports', 'Reports', 'report']
 ];
+
+/** Top of the menu: who is signed in, or a clear Sign in button when a household is connected but signed out. */
+function AccountBox() {
+  const s = useSyncStatus();
+  if (!s.state.location) return null; // this device only: nothing to sign in to
+  const who = knownAccount();
+  if (s.phase === 'signed-out' || !who)
+    return (
+      <div className="acct-box out">
+        <button className="btn good" style={{ justifyContent: 'center', width: '100%' }} onClick={() => signIn()}>
+          <Icon name="user" /> Sign in
+        </button>
+        <div className="acct-note">Signed out of Microsoft. Changes stay on this device until you sign in.</div>
+      </div>
+    );
+  const initials = (who.name || who.username).split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
+  return (
+    <NavLink to="/settings" className="acct-box in" title="Signed in with Microsoft: open Settings & sync">
+      <span className="acct-avatar" aria-hidden="true">{initials}</span>
+      <span className="acct-text">
+        <span className="acct-name">{who.name || who.username}</span>
+        <span className="acct-mail">Signed in{who.name ? ` · ${who.username}` : ''}</span>
+      </span>
+    </NavLink>
+  );
+}
 
 function SyncPill() {
   const s = useSyncStatus();
@@ -49,9 +77,11 @@ function SyncPill() {
       ? 'This device only'
       : s.phase === 'idle'
         ? `Synced${s.state.lastSyncAt ? ' ' + new Date(s.state.lastSyncAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}`
-        : s.message;
+        : s.phase === 'signed-out'
+          ? 'Signed out · sign in'
+          : s.message;
   return (
-    <button className="sync-pill" onClick={() => (s.phase === 'not-set-up' ? (location.hash = '#/settings') : runSync())} title={s.message}>
+    <button className="sync-pill" onClick={() => (s.phase === 'not-set-up' ? (location.hash = '#/settings') : s.phase === 'signed-out' ? signIn() : runSync())} title={s.phase === 'signed-out' ? 'Signed out of Microsoft: click to sign in' : s.message}>
       <span className={cx('dot', tone)} />
       <span>
         {label}
@@ -85,9 +115,7 @@ function Shell({ children }: { children: ReactNode }) {
           <img src="icon.svg" alt="" />
           Household Finance
         </div>
-        <button className="btn good" style={{ justifyContent: 'center' }} onClick={() => openTx()}>
-          <Icon name="plus" /> Add transaction
-        </button>
+        {!ARCHIVE_YEAR ? <AccountBox /> : null}
         <nav className="nav" aria-label="Main">
           {NAV.map(([to, label, icon]) => (
             <NavLink key={to} to={to} end={to === '/'}>
@@ -95,9 +123,6 @@ function Shell({ children }: { children: ReactNode }) {
             </NavLink>
           ))}
           <div className="nav-sep" />
-          <NavLink to="/categories">
-            <Icon name="list" /> Categories
-          </NavLink>
           <NavLink to="/years">
             <Icon name="archive" /> Years & archive
           </NavLink>
@@ -135,10 +160,11 @@ function Shell({ children }: { children: ReactNode }) {
         ) : null}
         {children}
       </main>
+      <SignInGate pending={pending} />
       <nav className="tabbar" aria-label="Main">
-        <NavLink to="/" end>
-          <Icon name="home" />
-          Overview
+        <NavLink to="/budget">
+          <Icon name="budget" />
+          Budget
         </NavLink>
         <NavLink to="/accounts">
           <Icon name="accounts" />
@@ -150,9 +176,9 @@ function Shell({ children }: { children: ReactNode }) {
           </span>
           Add
         </button>
-        <NavLink to="/budget">
-          <Icon name="budget" />
-          Budget
+        <NavLink to="/transactions">
+          <Icon name="list" />
+          Transactions
         </NavLink>
         <NavLink to="/more">
           <Icon name="more" />

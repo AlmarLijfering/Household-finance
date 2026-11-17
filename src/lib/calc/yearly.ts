@@ -60,12 +60,18 @@ const words = (s: string) => s.toLowerCase().split(/[^a-z0-9ăâîșțşţ]+/).f
  * Transactions that could belong to a yearly item: money out in the item's year, not yet in its
  * category, paid from the yearly fund, booked as "Yearly expenses (paid)", or naming the item.
  */
-export function yearlyCandidates(m: Model, item: YearlyItem, fundAccountId: string | null | undefined): Transaction[] {
+/**
+ * Transactions that may belong to a yearly item. Only ones without a real category are offered:
+ * uncategorised, or still on the general "Yearly expenses (paid)" category waiting to be assigned.
+ * Anything with another category is fixed on the Transactions page instead.
+ */
+export function yearlyCandidates(m: Model, item: YearlyItem, fundAccountId: string | null | undefined, opts: { includeCategorised?: boolean } = {}): Transaction[] {
   const paidCat = m.categories.find((c) => c.code === 'DIV001')?.id;
   const ws = words(item.name);
   return m.transactions
     .filter((t) => {
       if (t.amount >= 0 || (t.transferId && !t.categoryId)) return false;
+      if (!opts.includeCategorised && t.categoryId && t.categoryId !== paidCat) return false;
       if (!t.date.startsWith(String(item.year))) return false;
       if (item.categoryId && t.categoryId === item.categoryId) return false;
       if (t.splits?.length) return false;

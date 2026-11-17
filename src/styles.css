@@ -2190,3 +2190,67 @@ body.archive-mode .tabbar .add {
   background: color-mix(in srgb, #C98512 12%, #fff);
   color: var(--ink);
 }
+
+/* sign-in gate */
+.overlay.gate {
+  background: rgba(28, 42, 57, 0.62);
+  backdrop-filter: blur(3px);
+}
+.gate-foot {
+  flex-wrap: wrap;
+}
+
+/* account box at the top of the menu */
+.acct-box.in {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  text-decoration: none;
+  min-width: 0;
+}
+.acct-box.in:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.acct-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--moss);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+}
+.acct-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.acct-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acct-mail {
+  font-size: 12px;
+  color: #aebbb6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acct-box.out .acct-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f0c7d8;
+  padding: 0 4px;
+}

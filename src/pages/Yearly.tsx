@@ -172,6 +172,7 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
   const set = (p: Partial<YearlyItem>) => setIt({ ...it, ...p });
   const row = initial ? yearlyPlan(m, year, today()).rows.find((r) => r.item.id === initial.id) : undefined;
   const candidates = useMemo(() => (initial ? yearlyCandidates(m, { ...it }, fundAccountId).slice(0, 40) : []), [m, it.categoryId, it.name, fundAccountId]);
+  const hiddenCategorised = useMemo(() => (initial ? yearlyCandidates(m, { ...it }, fundAccountId, { includeCategorised: true }).length - yearlyCandidates(m, { ...it }, fundAccountId).length : 0), [m, it.categoryId, it.name, fundAccountId]);
   const paidCat = m.categories.find((c) => c.code === 'DIV001');
 
   async function createCategory() {
@@ -256,8 +257,13 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
           ) : null}
           <div className="section-head" style={{ marginTop: 20 }}>
             <h3>Possible matches</h3>
-            <span className="hint">paid from the fund, booked as yearly expense, or naming “{it.name}”</span>
+            <span className="hint">without a category or booked as “Yearly expenses (paid)”: paid from the fund or naming “{it.name}”</span>
           </div>
+          {hiddenCategorised ? (
+            <p className="small muted" style={{ margin: '0 0 8px' }}>
+              {hiddenCategorised} more transaction{hiddenCategorised === 1 ? '' : 's'} could match but already {hiddenCategorised === 1 ? 'has' : 'have'} another category, so {hiddenCategorised === 1 ? 'it is' : 'they are'} not shown. Change the category on the Transactions page if one belongs here.
+            </p>
+          ) : null}
           {candidates.length ? (
             <>
               <div className="list" style={{ maxHeight: 260, overflow: 'auto' }}>

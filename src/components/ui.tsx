@@ -65,6 +65,12 @@ const P: Record<string, ReactNode> = {
       <path d="m3 7 9 6 9-6" />
     </>
   ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4 4-6 8-6s8 2 8 6" />
+    </>
+  ),
   edit: (
     <>
       <path d="M4 20h4L19 9l-4-4L4 16v4z" />
