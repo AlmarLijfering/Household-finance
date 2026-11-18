@@ -28,20 +28,15 @@ import { ARCHIVE_YEAR, ReadOnlyError, ClosedYearError } from './lib/db';
 import { backToLive } from './lib/archive';
 import { useToast } from './components/ui';
 import { useEffect } from 'react';
+import { useMenu, type MenuEntry } from './lib/menu';
+
+// in a closed year's read-only view there is nothing to import and no sync to set up
+const allowed = (e: MenuEntry) => !ARCHIVE_YEAR || (e.id !== 'import' && e.id !== 'settings');
 
 const TxCtx = createContext<(d?: TxDraft) => void>(() => {});
 export const useTxEditor = () => useContext(TxCtx);
 
-const NAV: Array<[string, string, string]> = [
-  ['/budget', 'Budget', 'budget'],
-  ['/accounts', 'Accounts', 'accounts'],
-  ['/transactions', 'Transactions', 'list'],
-  ['/', 'Overview', 'home'],
-  ['/recurring', 'Bills & income', 'repeat'],
-  ['/yearly', 'Yearly expenses', 'envelope'],
-  ['/forecast', 'Forecast', 'forecast'],
-  ['/reports', 'Reports', 'report']
-];
+
 
 /** Top of the menu: who is signed in, or a clear Sign in button when a household is connected but signed out. */
 function AccountBox() {
@@ -93,6 +88,16 @@ function SyncPill() {
 
 function Shell({ children }: { children: ReactNode }) {
   const openTx = useTxEditor();
+  const menu = useMenu();
+  // phone bar: the first three menu items (Settings stays in More)
+  const bar = menu.visible.filter(allowed).filter((e) => e.id !== 'settings').slice(0, 3);
+  // open the app on the chosen start page
+  useEffect(() => {
+    const h = location.hash;
+    if ((h === '' || h === '#' || h === '#/') && menu.start.to !== '/' && !ARCHIVE_YEAR) location.replace('#' + menu.start.to);
+    // only when the app opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const pending = useAutoSync(!ARCHIVE_YEAR);
   const s0 = useSyncStatus();
   const toast = useToast();
@@ -117,25 +122,17 @@ function Shell({ children }: { children: ReactNode }) {
         </div>
         {!ARCHIVE_YEAR ? <AccountBox /> : null}
         <nav className="nav" aria-label="Main">
-          {NAV.map(([to, label, icon]) => (
-            <NavLink key={to} to={to} end={to === '/'}>
-              <Icon name={icon} /> {label}
+          {menu.main.filter(allowed).map((e) => (
+            <NavLink key={e.id} to={e.to} end={e.to === '/'}>
+              <Icon name={e.icon} /> {e.name}
             </NavLink>
           ))}
-          <div className="nav-sep" />
-          <NavLink to="/years">
-            <Icon name="archive" /> Years & archive
-          </NavLink>
-          {!ARCHIVE_YEAR ? (
-            <>
-              <NavLink to="/import">
-                <Icon name="import" /> Import from Excel
-              </NavLink>
-              <NavLink to="/settings">
-                <Icon name="settings" /> Settings & sync
-              </NavLink>
-            </>
-          ) : null}
+          {menu.lower.filter(allowed).length ? <div className="nav-sep" /> : null}
+          {menu.lower.filter(allowed).map((e) => (
+            <NavLink key={e.id} to={e.to} end={e.to === '/'}>
+              <Icon name={e.icon} /> {e.name}
+            </NavLink>
+          ))}
         </nav>
         <div className="rail-foot">
           {ARCHIVE_YEAR ? (
@@ -162,24 +159,24 @@ function Shell({ children }: { children: ReactNode }) {
       </main>
       <SignInGate pending={pending} />
       <nav className="tabbar" aria-label="Main">
-        <NavLink to="/budget">
-          <Icon name="budget" />
-          Budget
-        </NavLink>
-        <NavLink to="/accounts">
-          <Icon name="accounts" />
-          Accounts
-        </NavLink>
+        {bar.slice(0, 2).map((e) => (
+          <NavLink key={e.id} to={e.to} end={e.to === '/'}>
+            <Icon name={e.icon} />
+            {e.name}
+          </NavLink>
+        ))}
         <button className="add" onClick={() => openTx()} aria-label="Add transaction">
           <span className="plus">
             <Icon name="plus" />
           </span>
           Add
         </button>
-        <NavLink to="/transactions">
-          <Icon name="list" />
-          Transactions
-        </NavLink>
+        {bar.slice(2, 3).map((e) => (
+          <NavLink key={e.id} to={e.to} end={e.to === '/'}>
+            <Icon name={e.icon} />
+            {e.name}
+          </NavLink>
+        ))}
         <NavLink to="/more">
           <Icon name="more" />
           More
@@ -235,4 +232,4 @@ export default function App() {
   );
 }
 
-export { NAV };
+

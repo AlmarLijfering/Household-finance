@@ -1,24 +1,21 @@
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/ui';
 import { ARCHIVE_YEAR } from '../lib/db';
+import { useMenu } from '../lib/menu';
 
-const ITEMS: Array<[string, string, string, string]> = [
-  ['/', 'Overview', 'home', 'This month at a glance'],
-  ['/recurring', 'Bills & income', 'repeat', 'Subscriptions, salary, monthly transfers'],
-  ['/yearly', 'Yearly expenses', 'envelope', 'Once-a-year costs and their fund'],
-  ['/forecast', 'Forecast', 'forecast', 'Projected balances and scenarios'],
-  ['/reports', 'Reports', 'report', 'Charts and Excel downloads'],
-  ['/years', 'Years & archive', 'archive', 'Close a finished year, open old years read-only'],
-  ['/import', 'Import from Excel', 'import', 'Bring in a budget workbook'],
-  ['/settings', 'Settings & sync', 'settings', 'OneDrive, categories, currency, data']
-];
+
 
 export default function More() {
+  const menu = useMenu();
+  // everything not already in the phone bar (the first three items), Settings always last
+  const shown = menu.visible.filter((e) => !ARCHIVE_YEAR || (e.id !== 'import' && e.id !== 'settings'));
+  const inBar = shown.filter((e) => e.id !== 'settings').slice(0, 3).map((e) => e.id);
+  const rest = shown.filter((e) => !inBar.includes(e.id));
   return (
     <div>
       <div className="page-head"><h1>More</h1></div>
       <div className="list">
-        {ITEMS.filter(([to]) => !ARCHIVE_YEAR || (to !== '/import' && to !== '/settings')).map(([to, label, icon, meta]) => (
+        {rest.map(({ to, name: label, icon, desc: meta }) => (
           <Link key={to} to={to} className="list-row click" style={{ textDecoration: 'none', color: 'inherit' }}>
             <Icon name={icon} />
             <div className="grow">

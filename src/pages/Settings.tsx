@@ -5,12 +5,13 @@ import { AmountInput, Field, Icon, Modal, Money, Seg, useToast, Confirm } from '
 import { today, fmtDate } from '../lib/util';
 import type { Snapshot } from '../lib/types';
 import Categories from './Categories';
+import { MenuSettings } from '../components/MenuSettings';
 import { useSyncStatus, runSync } from '../lib/useSync';
 import * as G from '../lib/sync/graph';
 import * as S from '../lib/sync/sync';
 import { changePassphrase, createKeyring, rotateKey, unlock } from '../lib/sync/crypto';
 
-type Tab = 'sync' | 'categories' | 'household' | 'data';
+type Tab = 'sync' | 'categories' | 'menu' | 'household' | 'data';
 
 export default function Settings() {
   const [tab, setTab] = useState<Tab>('sync');
@@ -19,11 +20,13 @@ export default function Settings() {
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p className="sub">Sync and sharing, categories, currencies and your data.</p>
+          <p className="sub">Sync and sharing, categories, the menu, currencies and your data.</p>
         </div>
-        <Seg value={tab} onChange={setTab} options={[['sync', 'Sync & sharing'], ['categories', 'Categories'], ['household', 'Household & currency'], ['data', 'Data']]} />
+        <div className="scroll-x">
+          <Seg value={tab} onChange={setTab} options={[['sync', 'Sync & sharing'], ['categories', 'Categories'], ['menu', 'Menu'], ['household', 'Household & currency'], ['data', 'Data']]} />
+        </div>
       </div>
-      {tab === 'sync' ? <SyncSettings /> : tab === 'categories' ? <Categories /> : tab === 'household' ? <Household /> : <DataSettings />}
+      {tab === 'sync' ? <SyncSettings /> : tab === 'categories' ? <Categories /> : tab === 'menu' ? <MenuSettings /> : tab === 'household' ? <Household /> : <DataSettings />}
     </div>
   );
 }
