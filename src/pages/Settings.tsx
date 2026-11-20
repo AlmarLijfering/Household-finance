@@ -6,7 +6,7 @@ import { today, fmtDate } from '../lib/util';
 import type { Snapshot } from '../lib/types';
 import Categories from './Categories';
 import { MenuSettings } from '../components/MenuSettings';
-import { useSyncStatus, runSync } from '../lib/useSync';
+import { CHECK_OPTIONS, checkEvery, setCheckEvery, useSyncStatus, runSync } from '../lib/useSync';
 import * as G from '../lib/sync/graph';
 import * as S from '../lib/sync/sync';
 import { changePassphrase, createKeyring, rotateKey, unlock } from '../lib/sync/crypto';
@@ -33,6 +33,7 @@ export default function Settings() {
 
 // ------------------------------------------------------------------ sync
 function SyncSettings() {
+  const [every, setEvery] = useState(checkEvery);
   const toast = useToast();
   const st = useSyncStatus();
   const [clientId, setClientId] = useState(G.clientId());
@@ -173,6 +174,19 @@ function SyncSettings() {
                 </span>
                 <span className="spacer" />
                 <button className="btn sm ghost" onClick={() => setDisc(true)}>Disconnect this device</button>
+              </div>
+              <div className="small">
+                Household data last changed{' '}
+                <b>{st.state.remoteUpdatedAt ? new Date(st.state.remoteUpdatedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'not known yet'}</b>
+                {st.state.remoteUpdatedBy ? ` by ${st.state.remoteUpdatedBy}` : ''}
+                {st.state.lastCheckAt ? ` · this device last checked ${new Date(st.state.lastCheckAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}
+              </div>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <label className="small" htmlFor="check-every">Look for changes from other devices</label>
+                <select id="check-every" className="input" style={{ width: 'auto' }} value={every} onChange={(e) => { setCheckEvery(Number(e.target.value)); setEvery(Number(e.target.value)); }}>
+                  {CHECK_OPTIONS.map(([n, label]) => <option key={n} value={n}>{label}</option>)}
+                </select>
+                <span className="small muted">only while the app is open and in front; a check that finds nothing new downloads nothing</span>
               </div>
               <div className="small muted">
                 Revision {st.state.revision} · last sync {st.state.lastSyncAt ? new Date(st.state.lastSyncAt).toLocaleString('en-GB') : 'never'} · last backup {st.state.lastBackupAt ? new Date(st.state.lastBackupAt).toLocaleString('en-GB') : 'none yet'}

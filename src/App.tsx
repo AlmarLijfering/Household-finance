@@ -64,6 +64,28 @@ function AccountBox() {
   );
 }
 
+const when = (iso?: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return sameDay ? `today ${t}` : `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${t}`;
+};
+/** When the household data on OneDrive last changed, and by whom; plus when this device last looked. */
+export function HouseholdUpdated({ className = 'hh-updated' }: { className?: string }) {
+  const s = useSyncStatus();
+  if (!s.state.location || !s.state.remoteUpdatedAt) return null;
+  return (
+    <div className={className}>
+      <div>
+        Data updated <b>{when(s.state.remoteUpdatedAt)}</b>
+        {s.state.remoteUpdatedBy ? ` by ${s.state.remoteUpdatedBy.split(' ')[0]}` : ''}
+      </div>
+      {s.state.lastCheckAt ? <div className="hh-checked">Checked {when(s.state.lastCheckAt)}</div> : null}
+    </div>
+  );
+}
+
 function SyncPill() {
   const s = useSyncStatus();
   const tone = s.phase === 'idle' ? 'ok' : s.phase === 'syncing' || s.phase === 'publishing' ? 'busy' : s.phase === 'error' || s.phase === 'signed-out' || s.phase === 'locked' ? 'bad' : '';
@@ -140,6 +162,7 @@ function Shell({ children }: { children: ReactNode }) {
           ) : (
             <>
               <SyncPill />
+              <HouseholdUpdated />
               {pending && s0.state.location ? <div className="muted small">{pending} change{pending === 1 ? '' : 's'} waiting to sync</div> : null}
             </>
           )}

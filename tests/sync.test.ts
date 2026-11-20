@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 
-const remote: { files: Map<string, { body: string; etag: string }>; n: number; failNextAfterWrite: boolean } = { files: new Map(), n: 0, failNextAfterWrite: false };
+const remote: { files: Map<string, { body: string; etag: string }>; n: number; failNextAfterWrite: boolean; metaCalls?: number; downloads?: number } = { files: new Map(), n: 0, failNextAfterWrite: false };
 vi.mock('../src/lib/sync/graph', async () => {
   class PreconditionFailed extends Error {}
   class AuthRequired extends Error {}
@@ -11,9 +11,15 @@ vi.mock('../src/lib/sync/graph', async () => {
     AuthRequired,
     ensureSubfolders: async () => {},
     listChildren: async () => [],
-    download: async (_l: any, path: string) => {
+    getMeta: async (_l: any, path: string) => {
+      remote.metaCalls = (remote.metaCalls ?? 0) + 1;
       const f = remote.files.get(path);
-      return f ? { meta: { eTag: f.etag }, body: new TextEncoder().encode(f.body).buffer } : null;
+      return f ? { id: path, eTag: f.etag, lastModifiedDateTime: '2026-11-20T07:00:00Z', lastModifiedBy: { user: { displayName: 'Partner Name' } } } : null;
+    },
+    download: async (_l: any, path: string) => {
+      remote.downloads = (remote.downloads ?? 0) + 1;
+      const f = remote.files.get(path);
+      return f ? { meta: { eTag: f.etag, lastModifiedDateTime: '2026-11-20T07:00:00Z', lastModifiedBy: { user: { displayName: 'Partner Name' } } }, body: new TextEncoder().encode(f.body).buffer } : null;
     },
     upload: async (_l: any, path: string, blob: Blob, ifMatch?: string | null) => {
       const cur = remote.files.get(path);
@@ -103,5 +109,19 @@ describe('sync', () => {
     await S.syncNow();
     expect((await remoteSnapshot()).data.transactions.find((t: any) => t.id === 'p1').payee).toBe('Partner edit');
     void exportSnapshot;
+  });
+
+  it('a regular check downloads nothing when nobody changed anything, and picks up a partner change when they did', async () => {
+    await S.syncNow();
+    const d0 = remote.downloads ?? 0;
+    await S.syncNow();
+    await S.syncNow();
+    expect(remote.downloads ?? 0).toBe(d0); // only the file details were read
+    expect(S.status.state.lastCheckAt).toBeTruthy();
+    expect(S.status.state.remoteUpdatedBy).toBe('Partner Name');
+    await partnerSaves((s) => s.data.transactions.push({ ...tx('p9', -700, 'Partner later'), updatedAt: new Date().toISOString() }));
+    await S.syncNow();
+    expect(remote.downloads ?? 0).toBe(d0 + 1);
+    expect((await db.transactions.toArray()).some((t) => t.id === 'p9')).toBe(true);
   });
 });

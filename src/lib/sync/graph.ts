@@ -330,8 +330,8 @@ async function fetchContent(url: string): Promise<Response> {
 
 const itemPath = (loc: Location, path: string) => `/drives/${loc.driveId}/items/${loc.folderId}:/${path.split('/').map(encodeURIComponent).join('/')}`;
 
-export async function getMeta(loc: Location, path: string): Promise<DriveItem | null> {
-  const r = await gfetch(itemPath(loc, path));
+export async function getMeta(loc: Location, path: string, select?: string): Promise<DriveItem | null> {
+  const r = await gfetch(itemPath(loc, path) + (select ? `?select=${select}` : ''));
   if (r.status === 404) return null;
   return json(r);
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../components/ui';
 import { ARCHIVE_YEAR } from '../lib/db';
 import { useMenu } from '../lib/menu';
+import { HouseholdUpdated } from '../App';
 
 
 
@@ -13,7 +14,10 @@ export default function More() {
   const rest = shown.filter((e) => !inBar.includes(e.id));
   return (
     <div>
-      <div className="page-head"><h1>More</h1></div>
+      <div className="page-head">
+        <h1>More</h1>
+        <HouseholdUpdated className="hh-updated light" />
+      </div>
       <div className="list">
         {rest.map(({ to, name: label, icon, desc: meta }) => (
           <Link key={to} to={to} className="list-row click" style={{ textDecoration: 'none', color: 'inherit' }}>

@@ -4,7 +4,7 @@ import type { Op, Snapshot } from '../types';
 import { decryptJson, encryptJson, type Envelope, type Keyring } from './crypto';
 import { buildModel, DEFAULT_SETTINGS } from '../calc/model';
 import { opTouchesClosed } from '../calc/yearclose';
-import { download, upload, listChildren, PreconditionFailed, AuthRequired, ensureSubfolders, type Location, type DriveItem } from './graph';
+import { getMeta, download, upload, listChildren, PreconditionFailed, AuthRequired, ensureSubfolders, type Location, type DriveItem } from './graph';
 
 export const SNAPSHOT_PATH = 'Data/household.json';
 export const KEYRING_PATH = 'Data/keyring.json';
@@ -14,7 +14,10 @@ export interface SyncState {
   etag?: string | null;
   revision: number;
   appliedOps: string[];
-  lastSyncAt?: string;
+  lastSyncAt?: string; // last time this device was in step with OneDrive
+  lastCheckAt?: string; // last time this device looked at OneDrive (also when nothing had changed)
+  remoteUpdatedAt?: string; // when the household file on OneDrive last changed
+  remoteUpdatedBy?: string; // who saved it
   lastBackupAt?: string;
   lastReportAt?: string;
   lastReportRevision?: number;
@@ -83,12 +86,25 @@ async function saveState(s: SyncState) {
   emit({ state: s });
 }
 
-async function readRemote(loc: Location): Promise<{ etag: string; snapshot: Snapshot } | null> {
+/**
+ * Read the household file. Looks at its details first and only downloads it when it changed
+ * since this device last saw it, so frequent checks stay cheap.
+ */
+async function readRemote(loc: Location, knownEtag?: string | null): Promise<{ etag: string; snapshot: Snapshot | null; meta: DriveItem } | null> {
+  const meta = await getMeta(loc, SNAPSHOT_PATH, 'id,eTag,lastModifiedDateTime,lastModifiedBy');
+  if (!meta) return null;
+  if (knownEtag && meta.eTag === knownEtag) return { etag: meta.eTag, snapshot: null, meta };
   const f = await download(loc, SNAPSHOT_PATH);
   if (!f) return null;
   const env = JSON.parse(new TextDecoder().decode(f.body)) as Envelope;
   const snapshot = await decryptJson<Snapshot>(dataKey!, env, keyring ?? undefined);
-  return { etag: f.meta.eTag!, snapshot };
+  return { etag: f.meta.eTag!, snapshot, meta: f.meta };
+}
+function noteRemote(state: SyncState, meta?: DriveItem | null) {
+  if (!meta) return;
+  if (meta.lastModifiedDateTime) state.remoteUpdatedAt = meta.lastModifiedDateTime;
+  const by = meta.lastModifiedBy?.user?.displayName;
+  if (by) state.remoteUpdatedBy = by;
 }
 
 let running: Promise<void> | null = null;
@@ -125,15 +141,17 @@ async function syncOnce(opts: { publish?: () => Promise<void> }) {
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
       const pending = await db.pending.orderBy('at').toArray();
-      const remote = await readRemote(loc);
+      const remote = await readRemote(loc, state.etag);
+      state.lastCheckAt = new Date().toISOString();
+      noteRemote(state, remote?.meta);
       let applied = state.appliedOps;
       let revision = state.revision;
       let changedRemotely = false;
 
-      if (remote && remote.etag !== state.etag) {
+      if (remote && remote.snapshot && remote.etag !== state.etag) {
         // Someone else saved. Load their snapshot, then replay our retained edits on top.
         changedRemotely = true;
-        const already = new Set(remote.snapshot.appliedOps);
+        const already = new Set(remote.snapshot!.appliedOps);
         let mine = pending.filter((o) => !already.has(o.opId));
         // edits made on this device to a year that was closed elsewhere in the meantime are not applied
         const remoteModel = buildModel({ ...(remote.snapshot.data as any), settings: remote.snapshot.data.settings?.[0] ?? DEFAULT_SETTINGS, closedYears: remote.snapshot.data.closedYears ?? [] });
@@ -175,6 +193,7 @@ async function syncOnce(opts: { publish?: () => Promise<void> }) {
         const item = await upload(loc, SNAPSHOT_PATH, body, remote ? remote.etag : null);
         await db.pending.bulkDelete(toSend.map((o) => o.opId));
         Object.assign(state, { etag: item.eTag, revision: revision + 1, appliedOps: nextApplied, lastSyncAt: new Date().toISOString(), lastError: undefined });
+        noteRemote(state, item);
         await saveState(state);
         await maybeBackup(loc, state, body);
         await publish(opts, state);
