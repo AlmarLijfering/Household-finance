@@ -348,6 +348,8 @@ export function parseWorkbook(wb: WorkbookData, opts: ParseOptions = {}): Import
       const name = str(v['Item']) || str(v['Description']) || codeCell;
       const est = num(v['Estimated']);
       if (!name || est == null) continue;
+      // the table's own total row is not a yearly item
+      if (/^(grand\s+)?totals?$/i.test(name.trim()) || /^totals?$/i.test(codeCell.trim())) continue;
       const due = v['Due Date'] instanceof Date ? (v['Due Date'] as Date).toISOString().slice(0, 10) : `${year}-12-31`;
       const hasCode = CODE_RE.test(codeCell);
       items.push({

@@ -6,14 +6,25 @@ import { yearlyPlan, yearlyCandidates } from '../lib/calc/yearly';
 import { put, del, commit } from '../lib/db';
 import { AmountInput, Field, Icon, Modal, Money, useToast } from '../components/ui';
 import { CategorySelect } from '../components/TxEditor';
-import { fmtDate, today, uid, nowIso } from '../lib/util';
+import { fmtDate, fmtMoney, today, uid, nowIso } from '../lib/util';
 import type { YearlyItem, YearlyFund, Category, CategoryGroup } from '../lib/types';
 import type { Model } from '../lib/calc/model';
 import type { Change } from '../lib/importer/commit';
 import { useTxEditor } from '../App';
 
+/** Sub category of a yearly item: the budget section of its category ('' when not split yet). */
+const GENERIC = 'Yearly expenses';
+function subOf(m: Model, it: YearlyItem): string {
+  const sec = it.categoryId ? m.categoryById.get(it.categoryId)?.section : undefined;
+  return sec && sec !== GENERIC ? sec : '';
+}
+function subCategories(m: Model): string[] {
+  const ye = m.groups.find((g) => g.code === 'YE');
+  return Array.from(new Set(m.categories.filter((c) => c.groupId === ye?.id && c.section && c.section !== GENERIC).map((c) => c.section!))).sort();
+}
+
 /** A "Yearly expenses" category for an item: reuses one with the same name, otherwise makes YE0xx. */
-function categoryFor(m: Model, name: string, taken: Category[] = []): { id: string; changes: Change[] } {
+function categoryFor(m: Model, name: string, taken: Category[] = [], section?: string): { id: string; changes: Change[] } {
   const changes: Change[] = [];
   let group = m.groups.find((g) => g.code === 'YE');
   if (!group) {
@@ -26,7 +37,7 @@ function categoryFor(m: Model, name: string, taken: Category[] = []): { id: stri
   const nums = all.filter((c) => /^YE\d+$/.test(c.code)).map((c) => Number(c.code.slice(2)));
   const code = `YE${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
   // paid from the yearly fund, like in the workbook; change the scope under Categories if needed
-  const c: Category = { id: uid(), code, name: name.trim(), groupId: group.id, section: 'Yearly expenses', costType: 'fixed', rollover: 'none', accountTypes: ['reserve', 'savings'], sort: 500 + nums.length, updatedAt: nowIso() };
+  const c: Category = { id: uid(), code, name: name.trim(), groupId: group.id, section: section?.trim() || 'Yearly expenses', costType: 'fixed', rollover: 'none', accountTypes: ['reserve', 'savings'], sort: 500 + nums.length, updatedAt: nowIso() };
   taken.push(c);
   changes.push({ table: 'categories', put: c });
   return { id: c.id, changes };
@@ -41,6 +52,14 @@ export default function Yearly() {
   const toast = useToast();
   const p = yearlyPlan(m, year, today());
   const withoutCat = p.rows.filter((r) => !r.item.categoryId);
+  // an earlier import could bring in the workbook's total row as an item
+  const totalRow = p.rows.find((r) => /^(grand\s+)?totals?$/i.test(r.item.name.trim()) && r.item.estimated === p.rows.filter((x) => x !== r).reduce((a, x) => a + x.item.estimated, 0));
+  // items under their sub category (like the sections of Planned costs in the budget)
+  const subsUsed = Array.from(new Set(p.rows.map((r) => subOf(m, r.item))));
+  const showSubs = subsUsed.some(Boolean);
+  const groupedRows: Array<[string, typeof p.rows]> = subsUsed
+    .sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
+    .map((sub) => [sub, p.rows.filter((r) => subOf(m, r.item) === sub)]);
   async function giveCategories() {
     const taken: Category[] = [];
     const changes: Change[] = [];
@@ -74,6 +93,21 @@ export default function Yearly() {
           <button className="btn primary" disabled={!!closedY} onClick={() => setEdit('new')}><Icon name="plus" size={16} /> Add item</button>
         </div>
       </div>
+      {totalRow ? (
+        <div className="notice bad" style={{ marginBottom: 'var(--s4)' }}>
+          <b>“{totalRow.item.name}” looks like the total row from your Excel workbook</b>: its estimate ({fmtMoney(totalRow.item.estimated)}) equals all other items together, so every total on this page is counted twice.{' '}
+          <button
+            className="btn sm danger"
+            onClick={async () => {
+              const before = totalRow.item;
+              await del('yearlyItems', before.id);
+              toast({ text: `“${before.name}” removed`, action: { label: 'Undo', run: () => put('yearlyItems', before) } });
+            }}
+          >
+            Remove it
+          </button>
+        </div>
+      ) : null}
       {closedY ? (
         <div className="notice info" style={{ marginBottom: 'var(--s4)' }}>
           {year} is closed. Its yearly expenses are in the {year} archive.{' '}
@@ -119,7 +153,19 @@ export default function Yearly() {
                 </tr>
               </thead>
               <tbody>
-                {p.rows.map((r) => (
+                {groupedRows.map(([sub, rows]) => [
+                  showSubs ? (
+                    <tr key={`h-${sub}`} className="ysub">
+                      <td colSpan={2}>
+                        <b>{sub || 'Not in a sub category'}</b> <span className="muted small">· {rows.length} item{rows.length === 1 ? '' : 's'}</span>
+                      </td>
+                      <td className="r"><Money v={rows.reduce((a, r) => a + r.item.estimated, 0)} /></td>
+                      <td className="r"><Money v={rows.reduce((a, r) => a + r.actual, 0)} /></td>
+                      <td className="r"><Money v={rows.reduce((a, r) => a + r.remainder, 0)} /></td>
+                      <td colSpan={2} />
+                    </tr>
+                  ) : null,
+                  ...rows.map((r) => (
                   <tr key={r.item.id} className="click" onClick={() => setEdit(r.item)}>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.item.dueDate)}</td>
                     <td>
@@ -139,7 +185,8 @@ export default function Yearly() {
                       <input type="checkbox" aria-label="Paid" checked={r.item.paid} onChange={(e) => put('yearlyItems', { ...r.item, paid: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--moss)' }} />
                     </td>
                   </tr>
-                ))}
+                  ))
+                ])}
               </tbody>
             </table>
           </div>
@@ -169,6 +216,14 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
   const openTx = useTxEditor();
   const [it, setIt] = useState<YearlyItem>(initial ?? { id: uid(), year, name: '', categoryId: null, estimated: 0, dueDate: `${year}-12-01`, paid: false, updatedAt: '' });
   const [pick, setPick] = useState<Set<string>>(new Set());
+  const [sub, setSub] = useState(() => subOf(m, initial ?? ({ categoryId: null } as YearlyItem)));
+  /** Changes that put the item's category in the chosen sub category. */
+  const subChanges = (catId: string | null): Change[] => {
+    const c = catId ? m.categoryById.get(catId) : undefined;
+    if (!c || m.groupById.get(c.groupId)?.code !== 'YE') return [];
+    const want = sub.trim() || GENERIC;
+    return (c.section ?? GENERIC) === want ? [] : [{ table: 'categories', put: { ...c, section: want, updatedAt: nowIso() } }];
+  };
   const set = (p: Partial<YearlyItem>) => setIt({ ...it, ...p });
   const row = initial ? yearlyPlan(m, year, today()).rows.find((r) => r.item.id === initial.id) : undefined;
   const candidates = useMemo(() => (initial ? yearlyCandidates(m, { ...it }, fundAccountId).slice(0, 40) : []), [m, it.categoryId, it.name, fundAccountId]);
@@ -176,7 +231,7 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
   const paidCat = m.categories.find((c) => c.code === 'DIV001');
 
   async function createCategory() {
-    const res = categoryFor(m, it.name || 'Yearly item');
+    const res = categoryFor(m, it.name || 'Yearly item', [], sub);
     await commit([...res.changes, ...(initial ? [{ table: 'yearlyItems' as const, put: { ...it, categoryId: res.id } }] : [])], 'Category for yearly item');
     set({ categoryId: res.id });
     toast(`Category ${m.categoryById.get(res.id)?.code ?? 'created'} ready`);
@@ -186,13 +241,13 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
     let catId = it.categoryId;
     const changes: Change[] = [];
     if (!catId) {
-      const res = categoryFor(m, it.name);
+      const res = categoryFor(m, it.name, [], sub);
       catId = res.id;
       changes.push(...res.changes);
     }
     const before = m.transactions.filter((t) => pick.has(t.id));
     for (const t of before) changes.push({ table: 'transactions', put: { ...t, categoryId: catId } });
-    changes.push({ table: 'yearlyItems', put: { ...it, categoryId: catId } });
+    changes.push({ table: 'yearlyItems', put: { ...it, categoryId: catId } }, ...subChanges(catId));
     await commit(changes, `Link transactions to ${it.name}`);
     set({ categoryId: catId });
     setPick(new Set());
@@ -215,12 +270,16 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
           {initial ? <button className="btn danger" onClick={async () => { await del('yearlyItems', it.id); onClose(); }}>Delete</button> : null}
           <span className="spacer" />
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!it.name} onClick={async () => { await put('yearlyItems', it); onClose(); }}>Save</button>
+          <button className="btn primary" disabled={!it.name} onClick={async () => { await commit([{ table: 'yearlyItems', put: it }, ...subChanges(it.categoryId)], 'Yearly item'); onClose(); }}>Save</button>
         </>
       }
     >
       <div className="form-grid">
         <Field label="Item" className="full"><input className="input" value={it.name} onChange={(e) => set({ name: e.target.value })} autoFocus={!initial} /></Field>
+        <Field label="Sub category" help="Groups yearly items, e.g. Car, House, Presents. Also shown as a section in the budget.">
+          <input className="input" list="ye-subs" value={sub} onChange={(e) => setSub(e.target.value)} placeholder="e.g. Car" />
+          <datalist id="ye-subs">{subCategories(m).map((x) => <option key={x} value={x} />)}</datalist>
+        </Field>
         <Field label="Estimated"><AmountInput value={it.estimated} onChange={(estimated) => set({ estimated })} /></Field>
         <Field label="Due date"><input className="input" type="date" value={it.dueDate} onChange={(e) => set({ dueDate: e.target.value })} /></Field>
         <Field label="Category" help="Transactions in this category this year make up the actual amount">

@@ -25,6 +25,26 @@ export interface TxDraft {
   recurringId?: ID; // posting a bill/income: the schedule advances when saved
 }
 
+/**
+ * Categories for a dropdown, split the way the budget is: per group, and within a group per
+ * budget section (Planned costs · Bucharest, Planned costs · Floresti…) when it has several.
+ */
+export function categoryBlocks(m: Model, keep: (c: Model['categories'][number]) => boolean) {
+  const out: Array<{ key: string; label: string; groupId: string; section: string | null; cats: Model['categories'] }> = [];
+  for (const g of m.groups) {
+    const cats = m.categories.filter((c) => c.groupId === g.id && keep(c));
+    if (!cats.length) continue;
+    const sections = Array.from(new Set(cats.map((c) => c.section ?? '')));
+    if (sections.length <= 1) {
+      out.push({ key: g.id, label: g.name, groupId: g.id, section: null, cats });
+      continue;
+    }
+    for (const sec of sections)
+      out.push({ key: `${g.id}:${sec}`, label: sec ? `${g.name} · ${sec}` : g.name, groupId: g.id, section: sec, cats: cats.filter((c) => (c.section ?? '') === sec) });
+  }
+  return out;
+}
+
 export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true, date, showEnded, emptyLabel }: { emptyLabel?: string; value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean; date?: string; showEnded?: boolean }) {
   const [creating, setCreating] = useState(false);
   const account = accountId ? m.accountById.get(accountId) : undefined;
@@ -42,22 +62,16 @@ export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, 
       onChange={(e) => (e.target.value === '__new' ? setCreating(true) : onChange(e.target.value || null))}
     >
       {allowEmpty ? <option value="">{emptyLabel ?? '— No category —'}</option> : null}
-      {m.groups
-        .filter((g) => !filter || filter(g.kind))
-        .filter((g) => m.categories.some((c) => c.groupId === g.id && visible(c)))
-        .map((g) => (
-          <optgroup key={g.id} label={g.name}>
-            {m.categories
-              .filter((c) => c.groupId === g.id && visible(c))
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {!categoryActiveOn(c, on) ? ` (ended ${c.activeUntil})` : ''}
-                  {c.section && c.section !== g.name ? ` · ${c.section}` : ''}
-                </option>
-              ))}
-          </optgroup>
-        ))}
+      {categoryBlocks(m, (c) => visible(c) && (!filter || filter(m.groupById.get(c.groupId)?.kind ?? ''))).map((b) => (
+        <optgroup key={b.key} label={b.label}>
+          {b.cats.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {!categoryActiveOn(c, on) ? ` (ended ${c.activeUntil})` : ''}
+            </option>
+          ))}
+        </optgroup>
+      ))}
       {allowNew ? <option value="__new">+ New category…</option> : null}
     </select>
     {creating ? <CategoryForm defaultGroupCode={firstGroup?.code} onClose={() => setCreating(false)} onSaved={(c) => onChange(c.id)} /> : null}

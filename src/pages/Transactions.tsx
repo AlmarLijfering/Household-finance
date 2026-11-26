@@ -7,19 +7,72 @@ import { earmarkHints } from '../lib/calc/earmark';
 import { openArchiveView } from '../lib/archive';
 import { ARCHIVE_YEAR } from '../lib/db';
 import { commit } from '../lib/db';
-import { monthLabel } from '../lib/util';
+import { monthLabel, parseAmount } from '../lib/util';
+import type { Model } from '../lib/calc/model';
+import { categoryBlocks } from '../components/TxEditor';
 import { TxTable, matchesSearch } from '../components/TxTable';
 import { Icon, Money } from '../components/ui';
 import { useTxEditor } from '../App';
-import { CategorySelect } from '../components/TxEditor';
 import { sum } from '../lib/util';
+
+/** Category ids for a filter value: 'cat:<id>', 'sec:<groupId>:<section>' or 'grp:<groupId>'. */
+function categoriesFor(m: Model, v: string): Set<string> | null {
+  if (!v) return null;
+  const [kind, a, ...rest] = v.split(':');
+  if (kind === 'cat') return new Set([a]);
+  if (kind === 'grp') return new Set(m.categories.filter((c) => c.groupId === a).map((c) => c.id));
+  if (kind === 'sec') {
+    const sec = rest.join(':');
+    return new Set(m.categories.filter((c) => c.groupId === a && (c.section ?? '') === sec).map((c) => c.id));
+  }
+  return null;
+}
+
+/** Category filter that can also take a whole budget group or budget section. */
+function BudgetCategoryFilter({ m, value, onChange }: { m: Model; value: string; onChange: (v: string | null) => void }) {
+  const blocks = categoryBlocks(m, (c) => !c.archived);
+  return (
+    <select className="input" aria-label="Category" value={value} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">All categories</option>
+      {blocks.map((b, i) => {
+        const g = m.groupById.get(b.groupId)!;
+        const firstOfGroup = i === 0 || blocks[i - 1].groupId !== b.groupId;
+        const split = b.section !== null;
+        return [
+          // a group that is split into sections gets its own heading with "All of …"
+          firstOfGroup && split ? (
+            <optgroup key={`${g.id}-all`} label={g.name}>
+              <option value={`grp:${g.id}`}>All of {g.name}</option>
+            </optgroup>
+          ) : null,
+          <optgroup key={b.key} label={b.label}>
+            {split ? (b.section ? <option value={`sec:${g.id}:${b.section}`}>All of {b.section}</option> : null) : <option value={`grp:${g.id}`}>All of {g.name}</option>}
+            {b.cats.map((c) => (
+              <option key={c.id} value={`cat:${c.id}`}>
+                {c.name}
+                {c.activeUntil ? ` (ended ${c.activeUntil})` : ''}
+              </option>
+            ))}
+          </optgroup>
+        ];
+      })}
+    </select>
+  );
+}
 
 export default function Transactions() {
   const m = useModel();
   const open = useTxEditor();
   const [q, setQ] = useState('');
   const [account, setAccount] = useState('all');
-  const [cat, setCat] = useState<string | null>(null);
+  // category filter: one category, a whole budget section, or a whole budget group
+  const [cat, setCatRaw] = useState<string>('');
+  const setCat = (v: string | null) => setCatRaw(v ?? '');
+  const [minAmt, setMinAmt] = useState('');
+  const [maxAmt, setMaxAmt] = useState('');
+  const minV = minAmt.trim() ? parseAmount(minAmt) : null;
+  const maxV = maxAmt.trim() ? parseAmount(maxAmt) : null;
+  const catSet = useMemo(() => categoriesFor(m, cat), [m, cat]);
   const [month, setMonth] = useState('');
   const [moreFilters, setMoreFilters] = useState(false);
   const [from, setFrom] = useState('');
@@ -34,7 +87,9 @@ export default function Transactions() {
         .filter(
           (t) =>
             (account === 'all' || t.accountId === account) &&
-            (!cat || t.categoryId === cat || t.splits?.some((s) => s.categoryId === cat)) &&
+            (!catSet || (t.categoryId != null && catSet.has(t.categoryId)) || !!t.splits?.some((s) => s.categoryId != null && catSet.has(s.categoryId))) &&
+            (minV == null || Math.abs(t.amount) >= Math.abs(minV)) &&
+            (maxV == null || Math.abs(t.amount) <= Math.abs(maxV)) &&
             (!month || txMonth(m, t) === month) &&
             (!from || t.date >= from) &&
             (!to || t.date <= to) &&
@@ -42,7 +97,7 @@ export default function Transactions() {
             matchesSearch(m, t, q)
         )
         .sort((a, b) => txOrder(b, a)),
-    [m, q, account, cat, from, to, type, month, hints]
+    [m, q, account, catSet, from, to, type, month, hints, minV, maxV]
   );
   const net = sum(txs.filter((t) => !t.transferId).map((t) => txBase(m, t)));
 
@@ -120,7 +175,7 @@ export default function Transactions() {
           </label>
           <label className="field more">
             <span>Category</span>
-            <CategorySelect m={m} value={cat} onChange={setCat} allowNew={false} showEnded emptyLabel="All categories" />
+            <BudgetCategoryFilter m={m} value={cat} onChange={setCat} />
           </label>
           <label className="field more">
             <span>Type</span>
@@ -138,6 +193,14 @@ export default function Transactions() {
             <input className="input" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
           </label>
           <label className="field more">
+            <span>Amount from</span>
+            <input className="input" inputMode="decimal" placeholder="e.g. 100" value={minAmt} onChange={(e) => setMinAmt(e.target.value)} aria-invalid={minAmt.trim() !== '' && minV == null} />
+          </label>
+          <label className="field more">
+            <span>Amount to</span>
+            <input className="input" inputMode="decimal" placeholder="e.g. 500" value={maxAmt} onChange={(e) => setMaxAmt(e.target.value)} aria-invalid={maxAmt.trim() !== '' && maxV == null} />
+          </label>
+          <label className="field more">
             <span>From date</span>
             <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </label>
@@ -146,10 +209,10 @@ export default function Transactions() {
             <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
           <button className="btn mobile-only-flex" type="button" onClick={() => setMoreFilters(!moreFilters)} aria-expanded={moreFilters}>
-            {moreFilters ? 'Fewer filters' : `More filters${[account !== 'all', cat, type !== 'all', month, from, to].filter(Boolean).length ? ` (${[account !== 'all', cat, type !== 'all', month, from, to].filter(Boolean).length} on)` : ''}`}
+            {moreFilters ? 'Fewer filters' : `More filters${[account !== 'all', cat, type !== 'all', month, from, to, minAmt, maxAmt].filter(Boolean).length ? ` (${[account !== 'all', cat, type !== 'all', month, from, to, minAmt, maxAmt].filter(Boolean).length} on)` : ''}`}
           </button>
-          {q || account !== 'all' || cat || type !== 'all' || month || from || to ? (
-            <button className="btn ghost" style={{ alignSelf: 'end' }} onClick={() => { setQ(''); setAccount('all'); setCat(null); setType('all'); setMonth(''); setFrom(''); setTo(''); }}>
+          {q || account !== 'all' || cat || type !== 'all' || month || from || to || minAmt || maxAmt ? (
+            <button className="btn ghost" style={{ alignSelf: 'end' }} onClick={() => { setQ(''); setAccount('all'); setCat(null); setType('all'); setMonth(''); setFrom(''); setTo(''); setMinAmt(''); setMaxAmt(''); }}>
               Clear filters
             </button>
           ) : null}

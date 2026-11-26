@@ -2354,3 +2354,13 @@ body.archive-mode .tabbar .add {
 .hh-updated.light b {
   color: var(--ink);
 }
+tr.ysub td {
+  background: color-mix(in srgb, #1F8A8A 8%, #fff);
+  border-top: 10px solid #fff;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  font-size: 14px;
+}
+tr.ysub:first-child td {
+  border-top: 0;
+}

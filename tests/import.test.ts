@@ -86,7 +86,8 @@ describe.runIf(existsSync(f2027))('2027 workbook (future plan)', () => {
     m = apply(m, buildCommit(plan, m, { accountMap: suggestAccountMap(plan, m), includeBudgets: true, includeYearly: true, includeFx: true, includeSubscriptions: false, skipAlreadyImported: true }).changes);
     expect(m.transactions.length).toBe(0);
     expect(m.budgetLines.filter((b) => b.month === '2027-01').length).toBeGreaterThan(30);
-    expect(m.yearlyItems.filter((y) => y.year === 2027).length).toBe(30);
+    expect(m.yearlyItems.filter((y) => y.year === 2027).length).toBe(29); // the workbook's total row is not an item
+    expect(m.yearlyItems.some((y) => /^total$/i.test(y.name))).toBe(false);
     expect(m.yearlyFunds[0].monthlyContribution).toBe(237500);
   }, 60000);
 });
