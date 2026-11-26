@@ -45,12 +45,12 @@ export function categoryBlocks(m: Model, keep: (c: Model['categories'][number]) 
   return out;
 }
 
-export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true, date, showEnded, emptyLabel }: { emptyLabel?: string; value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean; date?: string; showEnded?: boolean }) {
+export function CategorySelect({ value, onChange, m, filter, allowEmpty = true, id, ariaLabel, accountId, allowNew = true, date, showEnded, emptyLabel, exclude }: { exclude?: Set<string>; emptyLabel?: string; value: ID | null; onChange: (v: ID | null) => void; m: Model; filter?: (kind: string) => boolean; allowEmpty?: boolean; id?: string; ariaLabel?: string; accountId?: ID; allowNew?: boolean; date?: string; showEnded?: boolean }) {
   const [creating, setCreating] = useState(false);
   const account = accountId ? m.accountById.get(accountId) : undefined;
   const on = date ?? today();
   // ended categories are only offered for dates up to their end (filters can show them all)
-  const visible = (c: Model['categories'][number]) => !c.archived && (c.id === value || (categoryAllowed(c, account) && (showEnded || categoryActiveOn(c, on))));
+  const visible = (c: Model['categories'][number]) => !c.archived && (c.id === value || (!exclude?.has(c.id) && categoryAllowed(c, account) && (showEnded || categoryActiveOn(c, on))));
   const firstGroup = m.groups.find((g) => !filter || filter(g.kind));
   return (
     <>

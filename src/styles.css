@@ -2364,3 +2364,18 @@ tr.ysub td {
 tr.ysub:first-child td {
   border-top: 0;
 }
+.yi-cat {
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-2);
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--moss);
+  text-decoration: underline;
+  cursor: pointer;
+}

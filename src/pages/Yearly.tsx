@@ -24,7 +24,7 @@ function subCategories(m: Model): string[] {
 }
 
 /** A "Yearly expenses" category for an item: reuses one with the same name, otherwise makes YE0xx. */
-function categoryFor(m: Model, name: string, taken: Category[] = [], section?: string): { id: string; changes: Change[] } {
+function categoryFor(m: Model, name: string, taken: Category[] = [], section?: string, fresh = false): { id: string; changes: Change[] } {
   const changes: Change[] = [];
   let group = m.groups.find((g) => g.code === 'YE');
   if (!group) {
@@ -33,7 +33,7 @@ function categoryFor(m: Model, name: string, taken: Category[] = [], section?: s
   }
   const all = [...m.categories, ...taken];
   const same = all.find((c) => c.groupId === group!.id && c.name.trim().toLowerCase() === name.trim().toLowerCase());
-  if (same) return { id: same.id, changes };
+  if (same && !fresh) return { id: same.id, changes };
   const nums = all.filter((c) => /^YE\d+$/.test(c.code)).map((c) => Number(c.code.slice(2)));
   const code = `YE${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, '0')}`;
   // paid from the yearly fund, like in the workbook; change the scope under Categories if needed
@@ -51,9 +51,10 @@ export default function Yearly() {
   const closedY = m.closedYears.find((c) => c.year === year);
   const toast = useToast();
   const p = yearlyPlan(m, year, today());
-  const withoutCat = p.rows.filter((r) => !r.item.categoryId);
+  const withoutCat = p.rows.flatMap((r) => r.items).filter((x) => !x.categoryId).map((item) => ({ item }));
+  const shared = p.rows.filter((r) => r.items.length > 1);
   // an earlier import could bring in the workbook's total row as an item
-  const totalRow = p.rows.find((r) => /^(grand\s+)?totals?$/i.test(r.item.name.trim()) && r.item.estimated === p.rows.filter((x) => x !== r).reduce((a, x) => a + x.item.estimated, 0));
+  const totalRow = p.rows.find((r) => /^(grand\s+)?totals?$/i.test(r.item.name.trim()) && r.estimated === p.rows.filter((x) => x !== r).reduce((a, x) => a + x.estimated, 0));
   // items under their sub category (like the sections of Planned costs in the budget)
   const subsUsed = Array.from(new Set(p.rows.map((r) => subOf(m, r.item))));
   const showSubs = subsUsed.some(Boolean);
@@ -108,6 +109,12 @@ export default function Yearly() {
           </button>
         </div>
       ) : null}
+      {shared.length ? (
+        <div className="notice" style={{ marginBottom: 'var(--s4)' }}>
+          <b>{shared.map((r) => `${r.items.map((x) => x.name).join(' and ')} (${m.categoryById.get(r.item.categoryId ?? '')?.code})`).join('; ')}</b>{' '}
+          {shared.length === 1 ? 'share one category' : 'each share a category'}, so {shared.length === 1 ? 'they are' : 'each pair is'} shown as one line: the money booked on a category counts once. To follow them separately, open one, pick or create its own category, and move its transactions to it on the Transactions page.
+        </div>
+      ) : null}
       {closedY ? (
         <div className="notice info" style={{ marginBottom: 'var(--s4)' }}>
           {year} is closed. Its yearly expenses are in the {year} archive.{' '}
@@ -159,7 +166,7 @@ export default function Yearly() {
                       <td colSpan={2}>
                         <b>{sub || 'Not in a sub category'}</b> <span className="muted small">· {rows.length} item{rows.length === 1 ? '' : 's'}</span>
                       </td>
-                      <td className="r"><Money v={rows.reduce((a, r) => a + r.item.estimated, 0)} /></td>
+                      <td className="r"><Money v={rows.reduce((a, r) => a + r.estimated, 0)} /></td>
                       <td className="r"><Money v={rows.reduce((a, r) => a + r.actual, 0)} /></td>
                       <td className="r"><Money v={rows.reduce((a, r) => a + r.remainder, 0)} /></td>
                       <td colSpan={2} />
@@ -169,20 +176,21 @@ export default function Yearly() {
                   <tr key={r.item.id} className="click" onClick={() => setEdit(r.item)}>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.item.dueDate)}</td>
                     <td>
-                      {r.item.name}
+                      {r.items.map((x) => x.name).join(' + ')}
                       <div className="small muted">
+                        {r.items.length > 1 ? <span className="badge warn" style={{ marginRight: 6 }}>{r.items.length} items, one category</span> : null}
                         {r.item.categoryId ? `${m.categoryById.get(r.item.categoryId)?.code} · ` : 'No category · '}
                         {r.source === 'transactions' ? `${r.linked.length} linked transaction${r.linked.length === 1 ? '' : 's'}` : r.source === 'entered' ? 'amount entered by hand — link its transactions' : 'nothing linked yet'}
                       </div>
                     </td>
-                    <td className="r"><Money v={r.item.estimated} /></td>
+                    <td className="r"><Money v={r.estimated} /></td>
                     <td className="r"><Money v={r.actual} /></td>
                     <td className="r"><Money v={r.remainder} /></td>
                     <td>
                       {r.status === 'paid' ? <span className="badge good">Paid</span> : r.status === 'overdue' ? <span className="badge bad">Past due date</span> : r.status === 'due-soon' ? <span className="badge warn">Due soon</span> : <span className="badge">Planned</span>}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" aria-label="Paid" checked={r.item.paid} onChange={(e) => put('yearlyItems', { ...r.item, paid: e.target.checked })} style={{ width: 18, height: 18, accentColor: 'var(--moss)' }} />
+                      <input type="checkbox" aria-label="Paid" checked={r.paid} onChange={(e) => commit(r.items.map((x) => ({ table: 'yearlyItems' as const, put: { ...x, paid: e.target.checked } })), 'Paid')} style={{ width: 18, height: 18, accentColor: 'var(--moss)' }} />
                     </td>
                   </tr>
                   ))
@@ -229,19 +237,45 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
   const candidates = useMemo(() => (initial ? yearlyCandidates(m, { ...it }, fundAccountId).slice(0, 40) : []), [m, it.categoryId, it.name, fundAccountId]);
   const hiddenCategorised = useMemo(() => (initial ? yearlyCandidates(m, { ...it }, fundAccountId, { includeCategorised: true }).length - yearlyCandidates(m, { ...it }, fundAccountId).length : 0), [m, it.categoryId, it.name, fundAccountId]);
   const paidCat = m.categories.find((c) => c.code === 'DIV001');
+  // An item is a yearly budget line: it books on its own category, like a line in the monthly budget.
+  const cat = it.categoryId ? m.categoryById.get(it.categoryId) : undefined;
+  const sharedWith = it.categoryId ? m.yearlyItems.filter((y) => y.id !== it.id && y.year === it.year && y.categoryId === it.categoryId) : [];
+  const usedElsewhere = useMemo(() => new Set(m.yearlyItems.filter((y) => y.id !== it.id && y.year === it.year && y.categoryId).map((y) => y.categoryId!)), [m, it.id, it.year]);
+  const [changeCat, setChangeCat] = useState(false);
 
-  async function createCategory() {
-    const res = categoryFor(m, it.name || 'Yearly item', [], sub);
-    await commit([...res.changes, ...(initial ? [{ table: 'yearlyItems' as const, put: { ...it, categoryId: res.id } }] : [])], 'Category for yearly item');
-    set({ categoryId: res.id });
-    toast(`Category ${m.categoryById.get(res.id)?.code ?? 'created'} ready`);
+  async function save() {
+    const changes: Change[] = [];
+    let catId = it.categoryId;
+    if (!catId) {
+      // a new item gets its own category, named after it
+      const res = categoryFor(m, it.name, [], sub, true);
+      catId = res.id;
+      changes.push(...res.changes);
+    } else if (cat && m.groupById.get(cat.groupId)?.code === 'YE' && !sharedWith.length && cat.name !== it.name.trim()) {
+      // the item and its category are one: renaming one renames the other
+      changes.push({ table: 'categories', put: { ...cat, name: it.name.trim(), updatedAt: nowIso() } });
+    }
+    changes.push({ table: 'yearlyItems', put: { ...it, categoryId: catId } }, ...subChanges(catId));
+    await commit(changes, 'Yearly item');
+    onClose();
+  }
+
+  /** For items that share a category: the one whose name doesn't match it gets a category of its own. */
+  const movable = sharedWith.length ? [it, ...sharedWith].filter((y) => y.name.trim() !== cat?.name) : [];
+  const toMove = movable.length ? movable : [it];
+  async function ownCategory(target: YearlyItem) {
+    const res = categoryFor(m, target.name, [], subOf(m, target) === GENERIC ? sub : subOf(m, target), true);
+    const put = target.id === it.id ? { ...it, categoryId: res.id } : { ...target, categoryId: res.id, updatedAt: nowIso() };
+    await commit([...res.changes, { table: 'yearlyItems', put }], 'Own category for yearly item');
+    if (target.id === it.id) set({ categoryId: res.id });
+    toast(`${target.name} now has its own category. Move its transactions to it on the Transactions page.`);
   }
 
   async function link() {
     let catId = it.categoryId;
     const changes: Change[] = [];
     if (!catId) {
-      const res = categoryFor(m, it.name, [], sub);
+      const res = categoryFor(m, it.name, [], sub, true);
       catId = res.id;
       changes.push(...res.changes);
     }
@@ -270,7 +304,7 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
           {initial ? <button className="btn danger" onClick={async () => { await del('yearlyItems', it.id); onClose(); }}>Delete</button> : null}
           <span className="spacer" />
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!it.name} onClick={async () => { await commit([{ table: 'yearlyItems', put: it }, ...subChanges(it.categoryId)], 'Yearly item'); onClose(); }}>Save</button>
+          <button className="btn primary" disabled={!it.name.trim()} onClick={save}>Save</button>
         </>
       }
     >
@@ -282,13 +316,32 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
         </Field>
         <Field label="Estimated"><AmountInput value={it.estimated} onChange={(estimated) => set({ estimated })} /></Field>
         <Field label="Due date"><input className="input" type="date" value={it.dueDate} onChange={(e) => set({ dueDate: e.target.value })} /></Field>
-        <Field label="Category" help="Transactions in this category this year make up the actual amount">
-          <div className="row">
-            <CategorySelect m={m} value={it.categoryId} onChange={(categoryId) => set({ categoryId })} filter={(k) => k === 'expense'} />
-            {!it.categoryId ? <button type="button" className="btn sm" onClick={createCategory} title="Create a Yearly expenses category named after this item">Create</button> : null}
+        <div className="full small yi-cat">
+          {cat ? (
+            <>
+              Books on <b>{cat.code} · {cat.name}</b>: everything booked on it in {it.year} is the actual, split payments included.{' '}
+            </>
+          ) : (
+            <>Saving creates its category, <b>{it.name.trim() || 'named after the item'}</b>, under Yearly expenses{sub.trim() ? ` · ${sub.trim()}` : ''}. </>
+          )}
+          {!changeCat ? (
+            <button type="button" className="link-btn" onClick={() => setChangeCat(true)}>{cat ? 'Use another category' : 'Use an existing category'}</button>
+          ) : null}
+          {changeCat ? (
+            <div style={{ marginTop: 6, maxWidth: 420 }}>
+              <CategorySelect m={m} value={it.categoryId} onChange={(categoryId) => set({ categoryId })} filter={(k) => k === 'expense'} exclude={usedElsewhere} allowNew={false} emptyLabel="Create a new one when saving" ariaLabel="Category" />
+            </div>
+          ) : null}
+        </div>
+        {sharedWith.length ? (
+          <div className="notice full small" style={{ margin: 0 }}>
+            <b>{sharedWith.map((x) => x.name).join(', ')}</b> books on the same category, so the two are shown as one line.{' '}
+            {toMove.map((y) => (
+              <button key={y.id} type="button" className="btn sm" style={{ marginRight: 6 }} onClick={() => ownCategory(y)}>Give {y.name} its own category</button>
+            ))}
           </div>
-        </Field>
-        <Field label="Amount entered by hand" help="Used only while no transactions are linked (e.g. the actual from your workbook)">
+        ) : null}
+        <Field label="Amount entered by hand" help="Only used while nothing is booked on its category yet (e.g. the actual from your workbook)">
           <AmountInput value={it.actualOverride ?? 0} onChange={(v) => set({ actualOverride: v || undefined })} />
         </Field>
       </div>

@@ -11,6 +11,10 @@ export interface YearlyRow {
   actual: number;
   remainder: number;
   status: 'paid' | 'overdue' | 'due-soon' | 'planned';
+  /** All items on this line: more than one when they share a category. */
+  items: YearlyItem[];
+  estimated: number; // of all items on the line
+  paid: boolean; // all items on the line paid
 }
 
 /** Mirrors the "Budget Yearly Expenses" sheet: account + contributions still to come − remaining costs. */
@@ -18,22 +22,33 @@ export function yearlyPlan(m: Model, year: number, todayIso: string) {
   const items = m.yearlyItems.filter((y) => y.year === year).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const fund = m.yearlyFunds.find((f) => f.year === year);
   const ls = lines(m).filter((l) => l.month.startsWith(String(year)));
-  const rows: YearlyRow[] = items.map((item) => {
-    // linked transactions win; the amount typed in (e.g. from the workbook) is the fallback
+  // The category is what counts: its transactions this year are the actual. Items that share a
+  // category are shown as one line, so the same money is never counted twice.
+  const groups: YearlyItem[][] = [];
+  for (const item of items) {
+    const g = item.categoryId ? groups.find((x) => x[0].categoryId === item.categoryId) : undefined;
+    if (g) g.push(item);
+    else groups.push([item]);
+  }
+  const rows: YearlyRow[] = groups.map((group) => {
+    const item = group[0];
     const linked = item.categoryId ? ls.filter((l) => l.categoryId === item.categoryId) : [];
-    const source: YearlyRow['source'] = linked.length ? 'transactions' : item.actualOverride != null ? 'entered' : 'none';
-    const actual = linked.length ? -sum(linked.map((l) => l.amount)) : item.actualOverride ?? 0;
-    const remainder = item.paid ? 0 : Math.max(0, item.estimated - actual);
+    const typed = group.some((g) => g.actualOverride != null) ? sum(group.map((g) => g.actualOverride ?? 0)) : null;
+    const source: YearlyRow['source'] = linked.length ? 'transactions' : typed != null ? 'entered' : 'none';
+    const actual = linked.length ? -sum(linked.map((l) => l.amount)) : typed ?? 0;
+    const estimated = sum(group.map((g) => g.estimated));
+    const paid = group.every((g) => g.paid);
+    const remainder = paid ? 0 : Math.max(0, estimated - actual);
     const soon = new Date(todayIso);
     soon.setDate(soon.getDate() + 30);
-    const status: YearlyRow['status'] = item.paid
+    const status: YearlyRow['status'] = paid
       ? 'paid'
       : item.dueDate < todayIso
         ? 'overdue'
         : item.dueDate <= soon.toISOString().slice(0, 10)
           ? 'due-soon'
           : 'planned';
-    return { item, linked, source, actual, remainder, status };
+    return { item, items: group, estimated, paid, linked, source, actual, remainder, status };
   });
   const acc = fund?.accountId ? m.accountById.get(fund.accountId) : undefined;
   const fundBalance = acc ? toBase(m, accountBalance(m, acc.id), acc.currency, todayIso) : 0;
@@ -48,7 +63,7 @@ export function yearlyPlan(m: Model, year: number, todayIso: string) {
     fundBalance,
     monthsLeft,
     contributions,
-    totalEstimated: sum(rows.map((r) => r.item.estimated)),
+    totalEstimated: sum(rows.map((r) => r.estimated)),
     totalRemaining,
     balance: fundBalance + contributions - totalRemaining
   };
