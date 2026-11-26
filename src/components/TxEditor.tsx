@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { commit } from '../lib/db';
 import type { Split, Transaction, ID } from '../lib/types';
 import { useModel } from '../lib/useModel';
-import { nowIso, today, uid, fmtMoney, sum } from '../lib/util';
+import { nowIso, today, uid, fmtMoney, sum, addDays, fmtDate, daysBetween } from '../lib/util';
 import { AmountInput, Field, Icon, Modal, Seg, useToast, Money } from './ui';
 import { categoryAllowed, categoryActiveOn, moveTarget, type Model } from '../lib/calc/model';
 import { CategoryForm } from './CategoryForm';
-import { nextOccurrence } from '../lib/calc/recurring';
+import { nextOccurrence, draftFor, isRecurringActive, signedAmount } from '../lib/calc/recurring';
 import { BudgetDatePicker } from './BudgetDatePicker';
 import { lastBookableMonth, monthOfDate } from '../lib/calc/period';
 import { isClosedMonth } from '../lib/calc/yearclose';
@@ -23,6 +23,7 @@ export interface TxDraft {
   memo?: string;
   toAccountId?: ID;
   recurringId?: ID; // posting a bill/income: the schedule advances when saved
+  pickBill?: boolean; // open on the list of due bills
 }
 
 /**
@@ -102,7 +103,41 @@ export function AccountSelect({ value, onChange, m, exclude, ariaLabel }: { valu
   );
 }
 
-export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => void }) {
+/** Bills and subscriptions that are overdue or due within the next days, soonest first. */
+export function billsDue(m: Model, on: string, days = 10) {
+  const until = addDays(on, days);
+  return m.recurring
+    .filter((r) => (r.kind === 'bill' || r.kind === 'subscription') && !r.scenarioId && isRecurringActive(r, on) && r.nextDate <= until)
+    .sort((a, b) => a.nextDate.localeCompare(b.nextDate) || a.name.localeCompare(b.name));
+}
+
+function BillPicker({ m, onPick }: { m: Model; onPick: (d: TxDraft) => void }) {
+  const now = today();
+  const bills = useMemo(() => billsDue(m, now), [m, now]);
+  if (!bills.length) return <div className="empty small" style={{ padding: '24px 12px' }}>No bills or subscriptions are overdue or due in the next 10 days.</div>;
+  return (
+    <div className="bill-pick-list">
+      <div className="bill-pick-head">Overdue or due in the next 10 days. Pick one to fill in the payment.</div>
+      {bills.map((r) => {
+        const late = daysBetween(r.nextDate, now);
+        return (
+          <button key={r.id} type="button" className="bill-pick-item" onClick={() => onPick(draftFor(r, now))}>
+            <span className="bill-pick-name">
+              {r.name}
+              <span className="bill-pick-acc">{m.accountById.get(r.accountId)?.name}</span>
+            </span>
+            <span className={late > 0 ? 'bill-pick-when late' : 'bill-pick-when'}>
+              {late > 0 ? `${late} day${late === 1 ? '' : 's'} late` : late === 0 ? 'due today' : `due ${fmtDate(r.nextDate)}`}
+            </span>
+            <Money v={signedAmount(r)} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function TxEditor({ draft, onClose, onReplace }: { draft: TxDraft; onClose: () => void; onReplace?: (d: TxDraft) => void }) {
   const m = useModel();
   const toast = useToast();
   const existing = draft.id ? m.transactions.find((t) => t.id === draft.id) : undefined;
@@ -118,6 +153,8 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
   const [toAccountId, setToAccountId] = useState<ID>(inSide?.accountId ?? draft.toAccountId ?? draftTarget?.id ?? m.accounts.find((a) => a.id !== defaultAcc && !a.archived)?.id ?? '');
   const [autoTransfer, setAutoTransfer] = useState<string | null>(draftTarget ? draftTarget.name : null);
   const rec = draft.recurringId ? m.recurring.find((r) => r.id === draft.recurringId) : undefined;
+  const canPickBill = !existing && !!onReplace;
+  const [billMode, setBillMode] = useState(canPickBill && !!draft.pickBill);
   const [date, setDate] = useState(existing?.date ?? draft.date ?? today());
   const [amount, setAmount] = useState(Math.abs(existing?.amount ?? draft.amount ?? 0));
   const [payee, setPayee] = useState(existing?.payee ?? draft.payee ?? '');
@@ -241,7 +278,7 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={!valid} onClick={save}>
+          <button className="btn primary" disabled={!valid || billMode} onClick={save}>
             {existing ? 'Save changes' : rec ? (rec.kind === 'income' ? 'Record income' : 'Record payment') : 'Add transaction'}
           </button>
         </>
@@ -250,18 +287,22 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
       <div className="stack">
         <Seg
           ariaLabel="Type"
-          value={kind}
+          value={billMode ? 'bill' : kind}
           onChange={(k) => {
+            if (k === 'bill') return setBillMode(true);
+            setBillMode(false);
             setKind(k);
             setAutoTransfer(null);
           }}
           options={[
             ['expense', 'Money out'],
             ['income', 'Money in'],
-            ['transfer', 'Transfer']
+            ['transfer', 'Transfer'],
+            ...(canPickBill ? ([['bill', 'Bill']] as Array<['bill', string]>) : [])
           ]}
         />
-        {rec ? <div className="notice info small">Check the amount and date before saving — this {rec.kind === 'income' ? 'income' : 'payment'} was due {rec.nextDate}. Saving records it and moves the schedule to the next date.</div> : null}
+        {billMode ? <BillPicker m={m} onPick={onReplace!} /> : <>
+        {rec ? <div className="notice info small">Check the amount and date before saving — this {rec.kind === 'income' ? 'income' : 'payment'} was due {rec.nextDate}. Saving records it and moves the schedule to the next date.{onReplace ? <> <button type="button" className="link-btn" onClick={() => onReplace({ pickBill: true })}>Pick another bill</button></> : null}</div> : null}
         {reconciled ? <div className="notice info">This transaction is part of a completed reconciliation. Amount and account are locked; you can still change the description and category.</div> : null}
         <div className="form-grid">
           <Field label={kind === 'transfer' ? 'From account' : 'Account'}>
@@ -395,6 +436,7 @@ export function TxEditor({ draft, onClose }: { draft: TxDraft; onClose: () => vo
             Different currencies: the receiving side is converted at the rate for {date}. <Money v={amount} cur={acc.currency} />
           </div>
         ) : null}
+        </>}
       </div>
     </Modal>
   );

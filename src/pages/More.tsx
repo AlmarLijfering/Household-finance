@@ -10,7 +10,7 @@ export default function More() {
   const menu = useMenu();
   // everything not already in the phone bar (the first three items), Settings always last
   const shown = menu.visible.filter((e) => !ARCHIVE_YEAR || (e.id !== 'import' && e.id !== 'settings'));
-  const inBar = shown.filter((e) => e.id !== 'settings').slice(0, 3).map((e) => e.id);
+  const inBar = menu.bar.map((e) => e.id);
   const rest = shown.filter((e) => !inBar.includes(e.id));
   return (
     <div>

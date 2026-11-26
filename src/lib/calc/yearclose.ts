@@ -63,7 +63,7 @@ export function yearsOverview(m: Model): YearInfo[] {
   for (const t of m.transactions) get(yearOfMonth(pairMonth(m, t, tr))).transactions++;
   for (const b of m.budgetLines) get(yearOfMonth(b.month)).budgetLines++;
   for (const y of m.yearlyItems) get(y.year).yearlyItems++;
-  for (const p of m.monthPlans) if (p.startDate || p.startBaseline || p.startEstimate) get(yearOfMonth(p.id)).monthPlans++;
+  for (const p of m.monthPlans) if (p.startDate || p.startBaseline || p.startEstimate || p.note) get(yearOfMonth(p.id)).monthPlans++;
   for (const c of m.closedYears) {
     const e = get(c.year);
     e.closed = true;

@@ -26,7 +26,7 @@ async function boot() {
       sessionStorage.setItem('pfm.signinError', String((e as Error)?.message ?? e));
     }
     // back to the page you signed in from (first sign-in: Settings)
-    let back = '#/settings';
+    let back = '#/settings/sync';
     try {
       back = sessionStorage.getItem('pfm.returnTo') || back;
       sessionStorage.removeItem('pfm.returnTo');

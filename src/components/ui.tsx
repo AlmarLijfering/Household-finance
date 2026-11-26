@@ -93,7 +93,8 @@ const P: Record<string, ReactNode> = {
     </>
   ),
   download: <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />,
-  scale: <path d="M12 3v18M5 7h14M5 7l-3 7a4 4 0 0 0 6 0zM19 7l-3 7a4 4 0 0 0 6 0zM8 21h8" />
+  scale: <path d="M12 3v18M5 7h14M5 7l-3 7a4 4 0 0 0 6 0zM19 7l-3 7a4 4 0 0 0 6 0zM8 21h8" />,
+  note: <path d="M5 4h14v11l-5 5H5zM14 20v-5h5M8 9h8M8 12.5h5" />
 };
 export function Icon({ name, size = 20, className }: { name: keyof typeof P | string; size?: number; className?: string }) {
   return (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 import { useModel } from '../lib/useModel';
 import { annualGrid, computeMonth, linesForCopy, type LineResult } from '../lib/calc/budget';
 import { commit, put, del } from '../lib/db';
@@ -34,7 +34,7 @@ export default function Budget() {
         <ClosedMonth m={m} month={month} setMonth={setMonth} />
       ) : view === 'month' ? (
         <MonthView m={m} month={month} setMonth={setMonth} />
-      ) : <YearView m={m} year={Number(month.slice(0, 4))} setYear={(y) => setMonth(`${y}${month.slice(4)}`)} />}
+      ) : <YearView m={m} year={Number(month.slice(0, 4))} setYear={(y) => setMonth(`${y}${month.slice(4)}`)}  />}
     </div>
   );
 }
@@ -118,6 +118,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
   const plan: MonthPlan = m.monthPlans.find((p) => p.id === month) ?? { id: month, updatedAt: '' };
   const savePlan = (p: Partial<MonthPlan>) => put('monthPlans', { ...plan, ...p }, 'Edit month start');
   const [editCat, setEditCat] = useState<Category | null>(null);
+  const [noteLine, setNoteLine] = useState<BudgetLine | null>(null);
   const update = (l: BudgetLine, p: Partial<BudgetLine>) => put('budgetLines', { ...l, ...p }, 'Edit budget line');
 
   const groupOrder = ['IC', 'PC', 'RE', 'UC', 'YE', 'DIV'];
@@ -135,7 +136,7 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
   };
 
   return (
-    <>
+    <LineNoteCtx.Provider value={setNoteLine}>
       <div className="row wrap" style={{ justifyContent: 'space-between', marginBottom: 'var(--s4)' }}>
         <div className="row wrap">
           <MonthSwitch month={month} setMonth={setMonth} now={now} />
@@ -161,6 +162,8 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
           ) : null}
         </div>
       </div>
+
+      {plan.note ? <MonthNote plan={plan} month={month} readOnly={!!ARCHIVE_YEAR} /> : null}
 
       {!mb.lines.length ? (
         <div className="empty">
@@ -354,7 +357,8 @@ function MonthView({ m, month, setMonth }: { m: Model; month: string; setMonth: 
           onYes={() => commit(mb.lines.map((l) => ({ table: 'budgetLines' as const, del: l.line.id })), 'Remove month budget')}
         />
       ) : null}
-    </>
+      {noteLine ? <LineNoteForm m={m} line={noteLine} month={month} onClose={() => setNoteLine(null)} /> : null}
+    </LineNoteCtx.Provider>
   );
 }
 
@@ -452,6 +456,7 @@ function GroupCard({ code, name, kind, sections, m, update, isFuture, month, wee
 }
 
 function SectionRows({ showHead, name, totals, lines, m, update, isFuture, month, weeks, income, onEditCategory }: { showHead: boolean; name: string; totals: { baseline: number; estimate: number; actual: number; remaining: number }; lines: LineResult[]; m: Model; update: (l: BudgetLine, p: Partial<BudgetLine>) => void; isFuture: boolean; month: string; weeks: number; income: boolean; onEditCategory: (c: Category) => void }) {
+  const onNote = useLineNote();
   return (
     <>
       {showHead ? (
@@ -477,8 +482,19 @@ function SectionRows({ showHead, name, totals, lines, m, update, isFuture, month
                   {label}
                 </button>
                 <span className="bt-code">{c?.code}</span>
+                {!r.line.note && !ARCHIVE_YEAR ? (
+                  <button type="button" className="icon-btn bt-note-add" aria-label={`Add a note to ${label}`} title="Add a note for this month" onClick={() => onNote(r.line)}>
+                    <Icon name="note" size={14} />
+                  </button>
+                ) : null}
               </div>
               {meta ? <div className="bt-meta">{meta}</div> : null}
+              {r.line.note ? (
+                <button type="button" className="bt-note" title={ARCHIVE_YEAR ? r.line.note : `${r.line.note}\n\nClick to edit`} onClick={() => !ARCHIVE_YEAR && onNote(r.line)} disabled={!!ARCHIVE_YEAR}>
+                  <Icon name="note" size={13} />
+                  <span>{r.line.note}</span>
+                </button>
+              ) : null}
             </td>
             <td className="r desk-only">
               <AmountInput inline className="quiet" ariaLabel={`Baseline for ${label}`} value={r.line.baseline} onChange={(v) => v !== r.line.baseline && update(r.line, { baseline: v })} />
@@ -621,6 +637,12 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
   const [show, setShow] = useState<'estimate' | 'actual' | 'diff'>('actual');
   const [spread, setSpread] = useState<string | null>(null);
   const grid = useMemo(() => annualGrid(m, year), [m, year]);
+  // notes on budget lines, per category and month
+  const notes = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const l of m.budgetLines) if (l.note && l.month.startsWith(`${year}-`)) map.set(`${l.categoryId}|${l.month}`, [...(map.get(`${l.categoryId}|${l.month}`) ?? []), l.note]);
+    return map;
+  }, [m, year]);
   const order = ['IC', 'PC', 'RE', 'UC', 'YE', 'DIV'];
   const cats = [...grid.cats.keys()]
     .map((id) => m.categoryById.get(id)!)
@@ -680,8 +702,10 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
                   return (
                     <FragmentRow key={c.id} head={head ? <span className="cat-chip strong"><GroupDot code={g?.code} />{g?.name}</span> : undefined}>
                       <td style={{ whiteSpace: 'nowrap' }}>{c.name}</td>
-                      {MONTHS.map((_, i) => (
-                        <td key={i} className="r small">
+                      {MONTHS.map((_, i) => {
+                        const note = notes.get(`${c.id}|${grid.months[i]}`)?.join('\n');
+                        return (
+                        <td key={i} className={cx('r small', note && 'has-note')} title={note}>
                           {val(c.id, i) ? (
                             show === 'actual' && !grid.closed ? (
                               <DrillMoney v={val(c.id, i)} compact f={{ title: `${c.name} · ${MONTHS[i]} ${year}`, from: grid.months[i], categoryIds: [c.id] }} />
@@ -692,7 +716,8 @@ function YearView({ m, year, setYear }: { m: Model; year: number; setYear: (y: n
                             <span className="muted">·</span>
                           )}
                         </td>
-                      ))}
+                        );
+                      })}
                       <td className="r"><b><Money v={sum(MONTHS.map((_, i) => val(c.id, i)))} compact /></b></td>
                       <td className="r muted"><Money v={sum(e.estimate)} compact /></td>
                       <td>
@@ -845,6 +870,104 @@ function PeriodForm({ m, month, onClose }: { m: Model; month: string; onClose: (
       <p className="small muted" style={{ marginTop: 8 }}>
         Default for months you have not set: {periodRule(m) === 'weeks' ? `whole weeks, starting on the Monday nearest the 1st (${fmtDate(ruleStart(month, 'weeks'), true)} for this month)` : 'calendar months'}. Change it under Settings → Household.
       </p>
+    </Modal>
+  );
+}
+
+/** A free note for one budget month, kept with the month and synced with the household. */
+function MonthNote({ plan, month, readOnly }: { plan: MonthPlan; month: string; readOnly: boolean }) {
+  const toast = useToast();
+  const saved = plan.note ?? '';
+  const [text, setText] = useState<string | null>(null); // null = not editing
+  const editing = text !== null;
+  async function save(v: string) {
+    const note = v.trim() || undefined;
+    if ((note ?? '') !== saved) {
+      await put('monthPlans', { ...plan, note }, note ? 'Month note' : 'Remove month note');
+      if (!note && saved) toast({ text: 'Note removed', action: { label: 'Undo', run: () => put('monthPlans', { ...plan, note: saved }, 'Month note') } });
+    }
+    setText(null);
+  }
+  if (!editing && !saved) {
+    return readOnly ? null : (
+      <button className="btn sm ghost month-note-add" onClick={() => setText('')}>
+        <Icon name="plus" size={14} /> Add a note for {monthLabel(month)}
+      </button>
+    );
+  }
+  if (!editing) {
+    return (
+      <div className={cx('month-note', !readOnly && 'click')} onClick={readOnly ? undefined : () => setText(saved)} title={readOnly ? undefined : 'Edit note'} role={readOnly ? undefined : 'button'} tabIndex={readOnly ? undefined : 0} onKeyDown={(e) => { if (!readOnly && e.key === 'Enter') setText(saved); }}>
+        <div className="month-note-head">Note for {monthLabel(month)}</div>
+        <div className="month-note-text">{saved}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="month-note editing">
+      <div className="month-note-head">Note for {monthLabel(month)}</div>
+      <textarea
+        className="input"
+        rows={Math.min(10, Math.max(3, text.split('\n').length + 1))}
+        value={text}
+        autoFocus
+        placeholder="e.g. Car insurance moved to next month, holiday in Netherlands, extra income from…"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setText(null);
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(text);
+        }}
+      />
+      <div className="row" style={{ marginTop: 8, gap: 8 }}>
+        {saved ? <button className="btn sm ghost danger" onClick={() => save('')}>Remove note</button> : null}
+        <span className="spacer" />
+        <button className="btn sm" onClick={() => setText(null)}>Cancel</button>
+        <button className="btn sm primary" onClick={() => save(text)}>Save note</button>
+      </div>
+    </div>
+  );
+}
+
+const LineNoteCtx = createContext<(l: BudgetLine) => void>(() => {});
+const useLineNote = () => useContext(LineNoteCtx);
+
+/** Note on one budget line: what this category is about in this month. */
+function LineNoteForm({ m, line, month, onClose }: { m: Model; line: BudgetLine; month: string; onClose: () => void }) {
+  const toast = useToast();
+  const c = m.categoryById.get(line.categoryId);
+  const [text, setText] = useState(line.note ?? '');
+  async function save(v: string) {
+    const note = v.trim() || undefined;
+    if ((note ?? '') !== (line.note ?? '')) {
+      await put('budgetLines', { ...line, note }, note ? 'Budget line note' : 'Remove budget line note');
+      if (!note) toast({ text: 'Note removed', action: { label: 'Undo', run: () => put('budgetLines', line, 'Budget line note') } });
+    }
+    onClose();
+  }
+  return (
+    <Modal
+      title={`Note · ${line.label ?? c?.name ?? ''}`}
+      onClose={onClose}
+      footer={
+        <>
+          {line.note ? <button className="btn ghost danger" onClick={() => save('')}>Remove note</button> : null}
+          <span className="spacer" />
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={() => save(text)}>Save note</button>
+        </>
+      }
+    >
+      <p className="small muted" style={{ marginTop: 0 }}>{c?.code} · {monthLabel(month)}. The note stays with this month only.</p>
+      <textarea
+        className="input"
+        style={{ width: '100%', resize: 'vertical' }}
+        rows={5}
+        value={text}
+        autoFocus
+        placeholder="e.g. Paid twice this month, refund expected in December"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(text); }}
+      />
     </Modal>
   );
 }

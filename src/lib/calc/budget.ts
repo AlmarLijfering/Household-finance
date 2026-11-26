@@ -237,7 +237,7 @@ export function linesForCopy(m: Model, from: MonthKey, to: MonthKey, newId: () =
   const startTo = periodStart(m, to);
   return [...m.budgetLines, ...closedMonthLines(m, from)]
     .filter((b) => b.month === from && categoryActiveOn(m.categoryById.get(b.categoryId), startTo))
-    .map((b) => ({ ...b, id: newId(), month: to, baseline: b.baseline, estimate: b.baseline, closed: false, updatedAt: '' }));
+    .map((b) => ({ ...b, id: newId(), month: to, baseline: b.baseline, estimate: b.baseline, closed: false, note: undefined, updatedAt: '' }));
 }
 
 /** Annual view: estimate and actual per category per month. */

@@ -21,7 +21,7 @@ export default function Welcome() {
             <p>Account sheets, monthly budgets, yearly expenses, subscriptions and BNR rates come across with a preview before anything is saved.</p>
           </div>
         </button>
-        <button className="choice" onClick={() => nav('/settings')}>
+        <button className="choice" onClick={() => nav('/settings/sync')}>
           <Icon name="cloud" size={24} />
           <div>
             <h3>Join our household on OneDrive</h3>

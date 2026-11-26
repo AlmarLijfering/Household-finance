@@ -1,4 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Link, Navigate, useParams } from 'react-router-dom';
+import RecurringPage from './Recurring';
+import ImportPage from './Import';
+import Years from './Years';
+import { cx } from '../lib/util';
 import { useModel } from '../lib/useModel';
 import { put, commit, db, exportSnapshot, loadSnapshot } from '../lib/db';
 import { AmountInput, Field, Icon, Modal, Money, Seg, useToast, Confirm } from '../components/ui';
@@ -11,25 +16,111 @@ import * as G from '../lib/sync/graph';
 import * as S from '../lib/sync/sync';
 import { changePassphrase, createKeyring, rotateKey, unlock } from '../lib/sync/crypto';
 
-type Tab = 'sync' | 'categories' | 'menu' | 'household' | 'data';
+type SectionId = 'categories' | 'bills' | 'household' | 'sync' | 'import' | 'years' | 'data' | 'menu';
+interface SectionDef {
+  id: SectionId;
+  label: string;
+  icon: string;
+  desc: string;
+}
+/** Settings in the order you need them: what the budget is built from, sharing it, your data, this device. */
+export const SETTINGS_GROUPS: Array<{ label: string; items: SectionDef[] }> = [
+  {
+    label: 'Budget setup',
+    items: [
+      { id: 'categories', label: 'Categories', icon: 'list', desc: 'Groups, sections and categories of the budget' },
+      { id: 'bills', label: 'Bills & income', icon: 'repeat', desc: 'Subscriptions, salary and monthly transfers' },
+      { id: 'household', label: 'Household & currency', icon: 'user', desc: 'Name, budget months, currencies and rates' }
+    ]
+  },
+  {
+    label: 'Sharing',
+    items: [{ id: 'sync', label: 'Sync & sharing', icon: 'cloud', desc: 'OneDrive, who has access, encryption, backups' }]
+  },
+  {
+    label: 'Your data',
+    items: [
+      { id: 'import', label: 'Import from Excel', icon: 'import', desc: 'Bring in a budget workbook' },
+      { id: 'years', label: 'Years & archive', icon: 'archive', desc: 'Close a finished year, open old years' },
+      { id: 'data', label: 'Export & backup', icon: 'download', desc: 'Excel export, backup copy, restore, erase' }
+    ]
+  },
+  {
+    label: 'This device',
+    items: [{ id: 'menu', label: 'Menu', icon: 'edit', desc: 'Pages, order, sections and the phone bar' }]
+  }
+];
 
 export default function Settings() {
-  const [tab, setTab] = useState<Tab>('sync');
+  const { section } = useParams();
+  const m = useModel();
+  const fresh = m.groups.length === 0;
+  // before anything is set up, only connecting and importing make sense
+  const groups = fresh ? SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((x) => x.id === 'sync' || x.id === 'import' || x.id === 'menu') })).filter((g) => g.items.length) : SETTINGS_GROUPS;
+  const available = groups.flatMap((g) => g.items);
+  const cur = available.find((x) => x.id === section) ?? (fresh ? available[0] : undefined);
+  if (section && !cur) return <Navigate to="/settings" replace />;
   return (
-    <div>
+    <div className="settings-hub">
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p className="sub">Sync and sharing, categories, the menu, currencies and your data.</p>
-        </div>
-        <div className="scroll-x">
-          <Seg value={tab} onChange={setTab} options={[['sync', 'Sync & sharing'], ['categories', 'Categories'], ['menu', 'Menu'], ['household', 'Household & currency'], ['data', 'Data']]} />
+          <p className="sub">{cur ? cur.desc : 'Everything to set up, in the order you need it.'}</p>
         </div>
       </div>
-      {tab === 'sync' ? <SyncSettings /> : tab === 'categories' ? <Categories /> : tab === 'menu' ? <MenuSettings /> : tab === 'household' ? <Household /> : <DataSettings />}
+      <div className={cx('settings-layout', cur ? 'has-section' : 'is-index')}>
+        <nav className="settings-nav" aria-label="Settings">
+          {groups.map((g) => (
+            <div key={g.label} className="settings-nav-group">
+              <div className="settings-nav-head">{g.label}</div>
+              {g.items.map((x) => (
+                <Link key={x.id} to={`/settings/${x.id}`} className={cx('settings-nav-item', cur?.id === x.id && 'active')} aria-current={cur?.id === x.id ? 'page' : undefined}>
+                  <Icon name={x.icon} size={18} />
+                  <span>
+                    {x.label}
+                    <small>{x.desc}</small>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="settings-body">
+          {cur ? (
+            <>
+              <Link to="/settings" className="settings-back small">
+                <Icon name="chevl" size={14} /> All settings
+              </Link>
+              <SettingsSection id={cur.id} />
+            </>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
+
+function SettingsSection({ id }: { id: SectionId }) {
+  switch (id) {
+    case 'categories':
+      return <Categories />;
+    case 'bills':
+      return <RecurringPage />;
+    case 'household':
+      return <Household />;
+    case 'sync':
+      return <SyncSettings />;
+    case 'import':
+      return <ImportPage />;
+    case 'years':
+      return <Years />;
+    case 'data':
+      return <DataSettings />;
+    case 'menu':
+      return <MenuSettings />;
+  }
+}
+
 
 // ------------------------------------------------------------------ sync
 function SyncSettings() {

@@ -6,7 +6,7 @@ import { TxTable, matchesSearch } from '../components/TxTable';
 import { AmountInput, Field, Icon, Modal, Money, useToast } from '../components/ui';
 import { useTxEditor } from '../App';
 import { put } from '../lib/db';
-import { fmtDate, today } from '../lib/util';
+import { fmtDate, today, sum } from '../lib/util';
 import type { Account } from '../lib/types';
 import { AccountForm } from './Accounts';
 
@@ -14,6 +14,14 @@ import { AccountForm } from './Accounts';
 export function bankDifference(m: ReturnType<typeof useModel>, a: Account): number | null {
   if (a.statementBalance == null) return null;
   return accountBalance(m, a.id, a.statementDate ?? today()) - a.statementBalance;
+}
+
+/** Bookings dated after the bank balance you entered (up to today): that balance no longer covers them. */
+export function bookedSinceBank(m: ReturnType<typeof useModel>, a: Account): { n: number; amount: number } | null {
+  if (a.statementBalance == null || !a.statementDate) return null;
+  const on = today();
+  const txs = m.transactions.filter((t) => t.accountId === a.id && t.date > a.statementDate! && t.date <= on);
+  return txs.length ? { n: txs.length, amount: sum(txs.map((t) => t.amount)) } : null;
 }
 
 export default function Register() {
@@ -32,6 +40,8 @@ export default function Register() {
 
   const balance = accountBalance(m, acc.id);
   const diff = bankDifference(m, acc);
+  const since = bookedSinceBank(m, acc);
+  const outOfDate = diff === 0 && !!since;
   const shown = all.filter((t) => matchesSearch(m, t, q));
 
   return (
@@ -73,11 +83,11 @@ export default function Register() {
         </div>
         <div>
           <div className="k-label">Difference</div>
-          <div className="k-val" style={{ color: diff ? 'var(--plum)' : undefined }}>
-            {diff == null ? <span className="muted">—</span> : diff === 0 ? 'None' : <Money v={-diff} sign cur={acc.currency} />}
+          <div className="k-val" style={{ color: diff || outOfDate ? 'var(--plum)' : undefined }}>
+            {diff == null ? <span className="muted">—</span> : outOfDate ? 'Out of date' : diff === 0 ? 'None' : <Money v={-diff} sign cur={acc.currency} />}
           </div>
           <div className="small muted">
-            {diff == null ? 'enter a bank balance to compare' : diff === 0 ? 'the app matches the bank' : diff > 0 ? 'the bank has less than the app' : 'the bank has more than the app'}
+            {diff == null ? 'enter a bank balance to compare' : outOfDate ? `${since!.n} booking${since!.n === 1 ? '' : 's'} after ${fmtDate(acc.statementDate!)}` : diff === 0 ? 'the app matches the bank' : diff > 0 ? 'the bank has less than the app' : 'the bank has more than the app'}
           </div>
         </div>
         <div>
@@ -86,6 +96,26 @@ export default function Register() {
         </div>
       </div>
 
+      {outOfDate ? (
+        <div className="notice section" style={{ marginTop: 'var(--s4)' }}>
+          <b>Check with the bank: </b>
+          the bank balance of <Money v={acc.statementBalance!} cur={acc.currency} /> is for {fmtDate(acc.statementDate!, true)}. Since then {since!.n} transaction{since!.n === 1 ? ' was' : 's were'} booked (<Money v={since!.amount} sign cur={acc.currency} />), so the app now has <Money v={balance} cur={acc.currency} />. Enter today’s bank balance to see whether they still match.{' '}
+          <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => setBankEdit(true)}>
+            <Icon name="scale" size={14} /> Enter bank balance
+          </button>
+          <button
+            className="btn sm"
+            style={{ marginLeft: 6 }}
+            title="Use when you checked the bank and it shows the same as the app"
+            onClick={async () => {
+              await put('accounts', { ...acc, statementBalance: balance, statementDate: today() }, 'Bank balance set to app balance');
+              toast('Bank balance set to the app’s current balance');
+            }}
+          >
+            The bank also shows <Money v={balance} cur={acc.currency} />
+          </button>
+        </div>
+      ) : null}
       {diff ? (
         <div className="notice section" style={{ marginTop: 'var(--s4)' }}>
           <b>Money missing in the app: </b>

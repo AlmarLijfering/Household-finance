@@ -52,7 +52,6 @@ export default function Yearly() {
   const toast = useToast();
   const p = yearlyPlan(m, year, today());
   const withoutCat = p.rows.flatMap((r) => r.items).filter((x) => !x.categoryId).map((item) => ({ item }));
-  const shared = p.rows.filter((r) => r.items.length > 1);
   // an earlier import could bring in the workbook's total row as an item
   const totalRow = p.rows.find((r) => /^(grand\s+)?totals?$/i.test(r.item.name.trim()) && r.estimated === p.rows.filter((x) => x !== r).reduce((a, x) => a + x.estimated, 0));
   // items under their sub category (like the sections of Planned costs in the budget)
@@ -107,12 +106,6 @@ export default function Yearly() {
           >
             Remove it
           </button>
-        </div>
-      ) : null}
-      {shared.length ? (
-        <div className="notice" style={{ marginBottom: 'var(--s4)' }}>
-          <b>{shared.map((r) => `${r.items.map((x) => x.name).join(' and ')} (${m.categoryById.get(r.item.categoryId ?? '')?.code})`).join('; ')}</b>{' '}
-          {shared.length === 1 ? 'share one category' : 'each share a category'}, so {shared.length === 1 ? 'they are' : 'each pair is'} shown as one line: the money booked on a category counts once. To follow them separately, open one, pick or create its own category, and move its transactions to it on the Transactions page.
         </div>
       ) : null}
       {closedY ? (
@@ -178,10 +171,16 @@ export default function Yearly() {
                     <td>
                       {r.items.map((x) => x.name).join(' + ')}
                       <div className="small muted">
-                        {r.items.length > 1 ? <span className="badge warn" style={{ marginRight: 6 }}>{r.items.length} items, one category</span> : null}
+                        
                         {r.item.categoryId ? `${m.categoryById.get(r.item.categoryId)?.code} · ` : 'No category · '}
                         {r.source === 'transactions' ? `${r.linked.length} linked transaction${r.linked.length === 1 ? '' : 's'}` : r.source === 'entered' ? 'amount entered by hand — link its transactions' : 'nothing linked yet'}
                       </div>
+                      {r.items.filter((x) => x.note).map((x) => (
+                        <div key={x.id} className="bt-note" style={{ cursor: 'inherit' }} title={x.note}>
+                          <Icon name="note" size={13} />
+                          <span>{r.items.length > 1 ? `${x.name}: ` : ''}{x.note}</span>
+                        </div>
+                      ))}
                     </td>
                     <td className="r"><Money v={r.estimated} /></td>
                     <td className="r"><Money v={r.actual} /></td>
@@ -255,7 +254,7 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
       // the item and its category are one: renaming one renames the other
       changes.push({ table: 'categories', put: { ...cat, name: it.name.trim(), updatedAt: nowIso() } });
     }
-    changes.push({ table: 'yearlyItems', put: { ...it, categoryId: catId } }, ...subChanges(catId));
+    changes.push({ table: 'yearlyItems', put: { ...it, note: it.note?.trim() || undefined, categoryId: catId } }, ...subChanges(catId));
     await commit(changes, 'Yearly item');
     onClose();
   }
@@ -334,13 +333,16 @@ function ItemForm({ initial, year, fundAccountId, onClose }: { initial?: YearlyI
           ) : null}
         </div>
         {sharedWith.length ? (
-          <div className="notice full small" style={{ margin: 0 }}>
-            <b>{sharedWith.map((x) => x.name).join(', ')}</b> books on the same category, so the two are shown as one line.{' '}
+          <div className="full small hint" style={{ marginTop: -6 }}>
+            Also used by {sharedWith.map((x) => x.name).join(', ')}.{' '}
             {toMove.map((y) => (
-              <button key={y.id} type="button" className="btn sm" style={{ marginRight: 6 }} onClick={() => ownCategory(y)}>Give {y.name} its own category</button>
+              <button key={y.id} type="button" className="link-btn" style={{ marginRight: 8 }} onClick={() => ownCategory(y)}>Give {y.name} its own category</button>
             ))}
           </div>
         ) : null}
+        <Field label="Note" className="full" help={`Stays with this item in ${it.year}`}>
+          <textarea className="input" rows={2} style={{ width: '100%', resize: 'vertical' }} value={it.note ?? ''} onChange={(e) => set({ note: e.target.value || undefined })} placeholder="e.g. Bought in two parts, rest in December" />
+        </Field>
         <Field label="Amount entered by hand" help="Only used while nothing is booked on its category yet (e.g. the actual from your workbook)">
           <AmountInput value={it.actualOverride ?? 0} onChange={(v) => set({ actualOverride: v || undefined })} />
         </Field>

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { NavLink, Route, Routes, Navigate } from 'react-router-dom';
+import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import { Icon, ToastProvider } from './components/ui';
 import { ModelCtx, useLiveModel } from './lib/useModel';
 import { useAutoSync, useSyncStatus, runSync } from './lib/useSync';
@@ -54,7 +54,7 @@ function AccountBox() {
     );
   const initials = (who.name || who.username).split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
   return (
-    <NavLink to="/settings" className="acct-box in" title="Signed in with Microsoft: open Settings & sync">
+    <NavLink to="/settings/sync" className="acct-box in" title="Signed in with Microsoft: open Settings & sync">
       <span className="acct-avatar" aria-hidden="true">{initials}</span>
       <span className="acct-text">
         <span className="acct-name">{who.name || who.username}</span>
@@ -98,7 +98,7 @@ function SyncPill() {
           ? 'Signed out · sign in'
           : s.message;
   return (
-    <button className="sync-pill" onClick={() => (s.phase === 'not-set-up' ? (location.hash = '#/settings') : s.phase === 'signed-out' ? signIn() : runSync())} title={s.phase === 'signed-out' ? 'Signed out of Microsoft: click to sign in' : s.message}>
+    <button className="sync-pill" onClick={() => (s.phase === 'not-set-up' ? (location.hash = '#/settings/sync') : s.phase === 'signed-out' ? signIn() : runSync())} title={s.phase === 'signed-out' ? 'Signed out of Microsoft: click to sign in' : s.message}>
       <span className={cx('dot', tone)} />
       <span>
         {label}
@@ -111,8 +111,11 @@ function SyncPill() {
 function Shell({ children }: { children: ReactNode }) {
   const openTx = useTxEditor();
   const menu = useMenu();
-  // phone bar: the first three menu items (Settings stays in More)
-  const bar = menu.visible.filter(allowed).filter((e) => e.id !== 'settings').slice(0, 3);
+  // phone bar: the items chosen for it (or the first three); everything else is under More
+  const bar = menu.bar.filter(allowed);
+  // a Settings page that has its own menu item lights up that item, not Settings
+  const { pathname } = useLocation();
+  const pinnedHere = menu.visible.some((e) => e.id !== 'settings' && e.to === pathname);
   // open the app on the chosen start page
   useEffect(() => {
     const h = location.hash;
@@ -144,17 +147,21 @@ function Shell({ children }: { children: ReactNode }) {
         </div>
         {!ARCHIVE_YEAR ? <AccountBox /> : null}
         <nav className="nav" aria-label="Main">
-          {menu.main.filter(allowed).map((e) => (
-            <NavLink key={e.id} to={e.to} end={e.to === '/'}>
-              <Icon name={e.icon} /> {e.name}
-            </NavLink>
-          ))}
-          {menu.lower.filter(allowed).length ? <div className="nav-sep" /> : null}
-          {menu.lower.filter(allowed).map((e) => (
-            <NavLink key={e.id} to={e.to} end={e.to === '/'}>
-              <Icon name={e.icon} /> {e.name}
-            </NavLink>
-          ))}
+          {menu.groups.map((g, gi) => {
+            const items = g.items.filter(allowed);
+            if (!items.length && !g.label) return null;
+            return (
+              <div key={g.id} className="nav-group">
+                {gi > 0 ? <div className="nav-sep" /> : null}
+                {g.label ? <div className="nav-head">{g.label}</div> : null}
+                {items.map((e) => (
+                  <NavLink key={e.id} to={e.to} end={e.to === '/'} className={({ isActive }) => (isActive && !(e.id === 'settings' && pinnedHere) ? 'active' : '')}>
+                    <Icon name={e.icon} /> {e.name}
+                  </NavLink>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="rail-foot">
           {ARCHIVE_YEAR ? (
@@ -212,6 +219,7 @@ function Shell({ children }: { children: ReactNode }) {
 export default function App() {
   const model = useLiveModel();
   const [draft, setDraft] = useState<TxDraft | null>(null);
+  const [draftSeq, setDraftSeq] = useState(0);
   if (!model) return null;
   const fresh = model.groups.length === 0;
   return (
@@ -223,6 +231,7 @@ export default function App() {
             <Routes>
               <Route path="/import" element={<div className="main" style={{ margin: '0 auto' }}><ImportPage /></div>} />
               <Route path="/settings" element={<div className="main" style={{ margin: '0 auto' }}><Settings /></div>} />
+              <Route path="/settings/:section" element={<div className="main" style={{ margin: '0 auto' }}><Settings /></div>} />
               <Route path="*" element={<Welcome />} />
             </Routes>
           ) : (
@@ -239,6 +248,7 @@ export default function App() {
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/import" element={<ImportPage />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/:section" element={<Settings />} />
                 <Route path="/more" element={<More />} />
                 <Route path="/categories" element={<Categories />} />
                 <Route path="/years" element={<Years />} />
@@ -248,7 +258,7 @@ export default function App() {
             </Shell>
           )}
           </DrillProvider>
-          {draft ? <TxEditor draft={draft} onClose={() => setDraft(null)} /> : null}
+          {draft ? <TxEditor key={draftSeq} draft={draft} onClose={() => setDraft(null)} onReplace={(d) => { setDraft(d); setDraftSeq((n) => n + 1); }} /> : null}
         </TxCtx.Provider>
       </ModelCtx.Provider>
     </ToastProvider>

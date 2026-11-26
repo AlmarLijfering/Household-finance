@@ -52,10 +52,13 @@ export function TxTable({ m, txs, running, showAccount, pageSize = 150, bulk = t
   // one heading per day instead of repeating the date on every row
   const perDay = useMemo(() => {
     const map = new Map<string, { n: number; net: number }>();
+    // a transfer only cancels out when both of its sides are in the list (e.g. not on a single account)
+    const legs = new Map<string, number>();
+    for (const t of txs) if (t.transferId) legs.set(t.transferId, (legs.get(t.transferId) ?? 0) + 1);
     for (const t of txs) {
       const d = map.get(t.date) ?? { n: 0, net: 0 };
       d.n += 1;
-      if (!t.transferId) d.net += txBase(m, t);
+      if (!t.transferId || (legs.get(t.transferId) ?? 0) < 2) d.net += txBase(m, t);
       map.set(t.date, d);
     }
     return map;

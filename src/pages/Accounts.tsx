@@ -5,7 +5,7 @@ import { balancesByAccount, isReserve, isSpendable, toBase } from '../lib/calc/m
 import { Field, Icon, Modal, Money, AmountInput, useToast } from '../components/ui';
 import { put } from '../lib/db';
 import type { Account, AccountType } from '../lib/types';
-import { BankBalanceForm, bankDifference } from './Register';
+import { BankBalanceForm, bankDifference, bookedSinceBank } from './Register';
 import { today, uid, sum } from '../lib/util';
 
 export function AccountForm({ initial, onClose }: { initial?: Account; onClose: () => void }) {
@@ -134,6 +134,7 @@ export default function Accounts() {
             <div className="list">
               {list.map((a) => {
                 const stmtDiff = bankDifference(m, a);
+                const since = stmtDiff === 0 ? bookedSinceBank(m, a) : null;
                 return (
                   <div key={a.id} className="list-row click" onClick={() => nav(`/accounts/${a.id}`)}>
                     <div className="grow">
@@ -145,7 +146,7 @@ export default function Accounts() {
                         {a.statementDate ? ` · bank balance of ${a.statementDate.slice(8, 10)}.${a.statementDate.slice(5, 7)}` : ''}
                       </div>
                     </div>
-                    {stmtDiff != null && stmtDiff !== 0 ? <span className="badge warn" title="The bank balance you entered differs from the app">Bank differs by <Money v={-stmtDiff} sign /></span> : stmtDiff === 0 ? <span className="badge good desk-only">Matches bank</span> : null}
+                    {stmtDiff != null && stmtDiff !== 0 ? <span className="badge warn" title="The bank balance you entered differs from the app">Bank differs by <Money v={-stmtDiff} sign /></span> : since ? <span className="badge warn" title={`${since.n} booking${since.n === 1 ? '' : 's'} after the bank balance you entered: enter today's bank balance to check`}>Check bank balance</span> : stmtDiff === 0 ? <span className="badge good desk-only">Matches bank</span> : null}
                     <div style={{ textAlign: 'right' }}>
                       <Money v={bal.get(a.id) ?? 0} cur={a.currency} className="title" />
                       {a.currency !== m.settings.baseCurrency ? (

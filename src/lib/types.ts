@@ -99,6 +99,7 @@ export interface BudgetLine {
   baseline: number; // original plan, minor units base currency (always positive)
   estimate: number; // current expectation
   closed: boolean; // closed lines have no remaining amount
+  /** Your own note for this line in this month. */
   note?: string;
   sort: number;
   updatedAt: string;
@@ -160,6 +161,8 @@ export interface YearlyItem {
   actualOverride?: number; // when not derived from transactions
   dueDate: ISODate;
   paid: boolean;
+  /** Your own note for this item in this year. */
+  note?: string;
   updatedAt: string;
 }
 
@@ -208,6 +211,8 @@ export interface MonthPlan {
   startDate?: ISODate; // own first day of this budget month (end = next month's start − 1)
   startBaseline?: number;
   startEstimate?: number;
+  /** Older month-level note (notes now live on budget lines); still shown so it can be removed. */
+  note?: string;
   updatedAt: string;
 }
 
