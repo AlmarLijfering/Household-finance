@@ -24,6 +24,8 @@ export interface TxDraft {
   toAccountId?: ID;
   recurringId?: ID; // posting a bill/income: the schedule advances when saved
   pickBill?: boolean; // open on the list of due bills
+  dueDate?: string; // which due date of the bill this pays (default: its next date)
+  budgetMonth?: string; // count it for this budget month
 }
 
 /**
@@ -161,7 +163,7 @@ export function TxEditor({ draft, onClose, onReplace }: { draft: TxDraft; onClos
   const [memo, setMemo] = useState(existing?.memo ?? draft.memo ?? '');
   // bills/income meant for next month (e.g. a salary advance) start out counted for the next budget month
   const [budgetMonth, setBudgetMonth] = useState<string>(
-    (outSide ?? existing)?.budgetMonth ?? (!existing && rec?.countsFor === 'next' ? shiftMonth(monthOfDate(m, draft.date ?? today()), 1) : '')
+    (outSide ?? existing)?.budgetMonth ?? draft.budgetMonth ?? (!existing && rec?.countsFor === 'next' ? shiftMonth(monthOfDate(m, draft.date ?? today()), 1) : '')
   );
   const [monthTouched, setMonthTouched] = useState(false);
   const [categoryId, setCategoryId] = useState<ID | null>((outSide ?? existing)?.categoryId ?? draft.categoryId ?? null);
@@ -239,8 +241,16 @@ export function TxEditor({ draft, onClose, onReplace }: { draft: TxDraft; onClos
       };
       changes.push({ table: 'transactions', put: t });
     }
-    if (rec) for (const c of changes) if (c.put && c.put.accountId === accountId) c.put.recurringId = rec.id;
-    if (rec) changes.push({ table: 'recurring', put: { ...rec, nextDate: nextOccurrence(rec, rec.nextDate) } });
+    if (rec)
+      for (const c of changes)
+        if (c.put && c.put.accountId === accountId) {
+          c.put.recurringId = rec.id;
+          c.put.billDue = draft.dueDate ?? rec.nextDate;
+        }
+    // the schedule moves on only when this pays its current (or a later) due date, not an older one
+    const due = draft.dueDate ?? rec?.nextDate;
+    const advance = !!rec && !existing && !!due && due >= rec.nextDate;
+    if (rec && advance) changes.push({ table: 'recurring', put: { ...rec, nextDate: nextOccurrence(rec, due!) } });
     for (const c of changes)
       if (c.put) {
         c.put.budgetMonth = budgetMonth && budgetMonth !== monthOfDate(m, c.put.date) ? budgetMonth : undefined;
@@ -249,7 +259,7 @@ export function TxEditor({ draft, onClose, onReplace }: { draft: TxDraft; onClos
         if (c.put.budgetMonth) c.put.monthConfirmed = undefined;
       }
     await commit(changes, existing ? 'Edit transaction' : rec ? `Paid ${rec.name}` : 'Add transaction');
-    toast(existing ? 'Transaction saved' : rec ? `${rec.name} recorded — next due ${nextOccurrence(rec, rec.nextDate)}` : 'Transaction added');
+    toast(existing ? 'Transaction saved' : rec ? (advance ? `${rec.name} recorded — next due ${fmtDate(nextOccurrence(rec, due!))}` : `${rec.name} recorded`) : 'Transaction added');
     onClose();
   }
 
@@ -302,7 +312,7 @@ export function TxEditor({ draft, onClose, onReplace }: { draft: TxDraft; onClos
           ]}
         />
         {billMode ? <BillPicker m={m} onPick={onReplace!} /> : <>
-        {rec ? <div className="notice info small">Check the amount and date before saving — this {rec.kind === 'income' ? 'income' : 'payment'} was due {rec.nextDate}. Saving records it and moves the schedule to the next date.{onReplace ? <> <button type="button" className="link-btn" onClick={() => onReplace({ pickBill: true })}>Pick another bill</button></> : null}</div> : null}
+        {rec ? <div className="notice info small">Check the amount and date before saving — this {rec.kind === 'income' ? 'income' : 'payment'} was due {fmtDate(draft.dueDate ?? rec.nextDate)}. {(draft.dueDate ?? rec.nextDate) >= rec.nextDate ? 'Saving records it and moves the schedule to the next date.' : 'Saving records it; the schedule stays as it is.'}{onReplace ? <> <button type="button" className="link-btn" onClick={() => onReplace({ pickBill: true })}>Pick another bill</button></> : null}</div> : null}
         {reconciled ? <div className="notice info">This transaction is part of a completed reconciliation. Amount and account are locked; you can still change the description and category.</div> : null}
         <div className="form-grid">
           <Field label={kind === 'transfer' ? 'From account' : 'Account'}>

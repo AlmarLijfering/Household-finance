@@ -2767,3 +2767,140 @@ table.t.grid td.has-note::after {
   flex: 1;
   min-width: 0;
 }
+
+/* Bills on a budget line / yearly item */
+.bills-badge {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+.bills-badge.paid {
+  color: var(--moss);
+}
+.bills-badge.open {
+  color: #8a6210;
+}
+.bills-badge.late {
+  color: var(--plum);
+}
+.bills-badge.open .bills-count {
+  background: var(--saffron);
+  color: #3d2b05;
+}
+.bills-badge.late .bills-count {
+  background: var(--plum);
+}
+.bills-badge.none {
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+tr:hover .bills-badge.none,
+.bills-badge.none:focus-visible {
+  opacity: 0.8;
+}
+@media (hover: none) {
+  .bills-badge.none {
+    opacity: 0.45;
+  }
+}
+.bills-count {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--moss);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.bills-count svg {
+  vertical-align: -1px;
+}
+.bill-status-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.bill-status {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.bill-status:last-child {
+  border-bottom: 0;
+}
+.bill-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+}
+.bill-dot.paid {
+  background: var(--moss);
+  border-color: var(--moss);
+  color: #fff;
+}
+.bill-dot.due {
+  color: #c9a13b;
+}
+.bill-dot.late {
+  color: var(--plum);
+}
+.bill-status-name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.bill-status-name:disabled {
+  cursor: default;
+}
+.bill-status-name:not(:disabled):hover {
+  text-decoration: underline;
+}
+.bill-status-name small {
+  display: block;
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+.bill-status-when {
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.bill-status-when.paid {
+  color: var(--moss);
+}
+.bill-status-when.due {
+  color: #8a6210;
+}
+.bill-status-when.late {
+  color: var(--plum);
+}
+@media (max-width: 520px) {
+  .bill-status {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+  }
+  .bill-status .bill-status-when {
+    grid-column: 2;
+  }
+}

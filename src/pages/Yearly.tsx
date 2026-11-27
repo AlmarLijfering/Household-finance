@@ -1,3 +1,5 @@
+import { ARCHIVE_YEAR } from '../lib/db';
+import { BillsBadge } from '../components/BillsBadge';
 import { useState } from 'react';
 import { openArchiveView } from '../lib/archive';
 import { useModel } from '../lib/useModel';
@@ -170,6 +172,16 @@ export default function Yearly() {
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.item.dueDate)}</td>
                     <td>
                       {r.items.map((x) => x.name).join(' + ')}
+                      {r.item.categoryId ? (
+                        <BillsBadge
+                          m={m}
+                          categoryId={r.item.categoryId}
+                          name={r.item.name}
+                          period={{ year }}
+                          readOnly={!!ARCHIVE_YEAR}
+                          defaults={{ frequency: 'yearly', amount: r.estimated || undefined, startDate: r.item.dueDate, nextDate: r.item.dueDate, ...(p.fund?.accountId ? { accountId: p.fund.accountId } : {}) }}
+                        />
+                      ) : null}
                       <div className="small muted">
                         
                         {r.item.categoryId ? `${m.categoryById.get(r.item.categoryId)?.code} · ` : 'No category · '}

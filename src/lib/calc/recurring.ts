@@ -1,5 +1,6 @@
 import type { ISODate, Recurring, Transaction } from '../types';
-import { addDays, addMonths, nowIso, uid } from '../util';
+import { addDays, addMonths, nowIso, uid, shiftMonth, daysBetween } from '../util';
+import { monthOfDate, periodEnd, periodStart, txMonth } from './period';
 import type { Model } from './model';
 
 export function nextOccurrence(r: Recurring, from: ISODate): ISODate {
@@ -97,7 +98,7 @@ export function monthlyEquivalent(r: Recurring): number {
 /** Prefilled transaction for paying/receiving a recurring item; the user can adjust it before saving. */
 export function draftFor(r: Recurring, todayIso: ISODate) {
   return {
-    recurringId: r.id,
+    recurringId: r.id, billDue: r.nextDate,
     kind: (r.kind === 'income' ? 'income' : r.kind === 'transfer' ? 'transfer' : 'expense') as 'income' | 'expense' | 'transfer',
     accountId: r.accountId,
     toAccountId: r.toAccountId,
@@ -129,4 +130,94 @@ export function historyFor(txs: Transaction[], r: Recurring): Transaction[] {
       return true;
     })
     .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/** The k-th date of the schedule counted from the next date (k < 0 = earlier ones), without drifting. */
+function nthDate(r: Recurring, k: number): ISODate {
+  const n = Math.max(1, r.interval || 1);
+  switch (r.frequency) {
+    case 'weekly':
+      return addDays(r.nextDate, 7 * n * k);
+    case 'monthly':
+      return addMonths(r.nextDate, n * k);
+    case 'quarterly':
+      return addMonths(r.nextDate, 3 * n * k);
+    case 'yearly':
+      return addMonths(r.nextDate, 12 * n * k);
+  }
+}
+
+/** Half the time between two bills, in days: how far a payment can be from its bill date. */
+function halfInterval(r: Recurring): number {
+  const n = Math.max(1, r.interval || 1);
+  const days = { weekly: 7, monthly: 30, quarterly: 91, yearly: 365 }[r.frequency] * n;
+  return Math.floor(days / 2);
+}
+
+/** Schedule dates between from and to, including ones before the next date (not before the start date). */
+export function scheduleIn(r: Recurring, from: ISODate, to: ISODate): ISODate[] {
+  const out: ISODate[] = [];
+  let k = 0;
+  while (k > -600 && nthDate(r, k) > from) k--;
+  for (let i = 0; i < 800; i++, k++) {
+    const d = nthDate(r, k);
+    if (d > to) break;
+    if (r.endDate && d > r.endDate) break;
+    if (d >= from && (!r.startDate || d >= r.startDate)) out.push(d);
+  }
+  return out;
+}
+
+/**
+ * The budget month a scheduled date is for. A bill comes once per month: the one dated in
+ * November is November's bill, even when budget months start a few days off the calendar.
+ * Weekly items follow the budget month the date falls in.
+ */
+export const budgetMonthOf = (m: Model, r: Recurring, d: ISODate) => {
+  const base = r.frequency === 'weekly' ? monthOfDate(m, d) : d.slice(0, 7);
+  return r.countsFor === 'next' ? shiftMonth(base, 1) : base;
+};
+
+export interface BillInPeriod {
+  rec: Recurring;
+  /** When it is due in this period (the first date, as a bill is paid once per period). */
+  due: ISODate | null;
+  /** The budget month that date counts for. */
+  month: string | null;
+  /** The payment booked for it in this period, if any. */
+  paid: Transaction | null;
+}
+
+/**
+ * Bills, subscriptions and income on a category that fall in one budget month (or, with a
+ * year, anywhere in that year), each paid at most once per period.
+ */
+export function billsInPeriod(m: Model, categoryId: string, period: { month: string } | { year: number }): BillInPeriod[] {
+  const inPeriod = (mk: string) => ('month' in period ? mk === period.month : mk.startsWith(`${period.year}-`));
+  const first = 'month' in period ? period.month : `${period.year}-01`;
+  const last = 'month' in period ? period.month : `${period.year}-12`;
+  // wide enough that a payment made early or late still finds the date it was for
+  const from = periodStart(m, shiftMonth(first, -2));
+  const to = periodEnd(m, shiftMonth(last, 2));
+  const out: BillInPeriod[] = [];
+  for (const r of m.recurring) {
+    if (r.categoryId !== categoryId || r.scenarioId || r.kind === 'transfer') continue;
+    const dates = scheduleIn({ ...r, active: true }, from, to);
+    // each payment belongs to the bill date nearest to it, if that is close enough (half the
+    // time between two bills); a payment far from any bill date, or long before the bill
+    // started, is not counted as paying it
+    const reach = halfInterval(r);
+    const forMonth = (t: Transaction): string | null => {
+      if (t.recurringId === r.id && t.billDue) return budgetMonthOf(m, r, t.billDue);
+      if (r.startDate && t.date < addDays(r.startDate, -reach)) return null;
+      let best: ISODate | null = null;
+      for (const d of dates) if (!best || Math.abs(daysBetween(d, t.date)) < Math.abs(daysBetween(best, t.date))) best = d;
+      return best && Math.abs(daysBetween(best, t.date)) <= reach ? budgetMonthOf(m, r, best) : null;
+    };
+    const paid = historyFor(m.transactions, r).filter((t) => (t.billDue ?? t.date) >= from && (t.billDue ?? t.date) <= to && inPeriod(forMonth(t) ?? '')).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+    const due = r.active ? (dates.find((d) => inPeriod(budgetMonthOf(m, r, d))) ?? null) : null;
+    if (!paid && !due) continue;
+    out.push({ rec: r, due, month: due ? budgetMonthOf(m, r, due) : paid ? forMonth(paid) : null, paid });
+  }
+  return out.sort((a, b) => (a.due ?? a.paid?.date ?? '').localeCompare(b.due ?? b.paid?.date ?? '') || a.rec.name.localeCompare(b.rec.name));
 }

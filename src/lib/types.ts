@@ -82,6 +82,7 @@ export interface Transaction {
   reconciliationId?: ID;
   importBatchId?: ID;
   recurringId?: ID; // set when recorded from a bill or income
+  billDue?: ISODate; // the bill's due date this payment is for (set when paid from the bill)
   budgetMonth?: MonthKey; // counts for this budget month instead of the one its date falls in
   monthConfirmed?: boolean; // you confirmed it counts for the month of its date (no earmark warning)
   sourceRef?: string; // workbook/sheet/row for traceability and duplicate checks

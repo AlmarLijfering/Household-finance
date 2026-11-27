@@ -1,3 +1,4 @@
+import { BillsBadge } from '../components/BillsBadge';
 import { createContext, useContext, useMemo, useState } from 'react';
 import { useModel } from '../lib/useModel';
 import { annualGrid, computeMonth, linesForCopy, type LineResult } from '../lib/calc/budget';
@@ -482,6 +483,7 @@ function SectionRows({ showHead, name, totals, lines, m, update, isFuture, month
                   {label}
                 </button>
                 <span className="bt-code">{c?.code}</span>
+                {c ? <BillsBadge m={m} categoryId={c.id} name={label ?? c.name} period={{ month }} readOnly={!!ARCHIVE_YEAR} defaults={r.line.baseline ? { amount: r.line.baseline } : undefined} /> : null}
                 {!r.line.note && !ARCHIVE_YEAR ? (
                   <button type="button" className="icon-btn bt-note-add" aria-label={`Add a note to ${label}`} title="Add a note for this month" onClick={() => onNote(r.line)}>
                     <Icon name="note" size={14} />

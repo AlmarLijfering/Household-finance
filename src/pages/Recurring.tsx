@@ -10,7 +10,7 @@ import type { Frequency, Recurring, RecurringKind } from '../lib/types';
 import type { Model } from '../lib/calc/model';
 
 const KIND_LABEL: Record<RecurringKind, string> = { bill: 'Bills', subscription: 'Subscriptions', income: 'Income', transfer: 'Transfers & savings' };
-const FREQ: Record<Frequency, string> = { weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' };
+export const FREQ: Record<Frequency, string> = { weekly: 'week', monthly: 'month', quarterly: 'quarter', yearly: 'year' };
 
 export default function RecurringPage() {
   const m = useModel();
@@ -263,7 +263,7 @@ function RecurringDetail({ m, r, onClose, onEdit, onPay }: { m: Model; r: Recurr
   );
 }
 
-export function RecurringForm({ m, initial, onClose, scenarioId }: { m: Model; initial?: Recurring; onClose: () => void; scenarioId?: string }) {
+export function RecurringForm({ m, initial, onClose, scenarioId, defaults }: { m: Model; initial?: Recurring; onClose: () => void; scenarioId?: string; defaults?: Partial<Recurring> }) {
   const [r, setR] = useState<Recurring>(
     initial ?? {
       id: uid(),
@@ -278,7 +278,8 @@ export function RecurringForm({ m, initial, onClose, scenarioId }: { m: Model; i
       nextDate: today(),
       active: true,
       scenarioId: scenarioId ?? null,
-      updatedAt: ''
+      updatedAt: '',
+      ...defaults
     }
   );
   const set = (p: Partial<Recurring>) => setR({ ...r, ...p });
